@@ -1,0 +1,98 @@
+{
+  "users": [
+    {
+      "id": "usr_platform_admin_01",
+      "fullName": "Dr. Anil Sahasrabudhe (Central Administration)",
+      "email": "admin@aicte.gov.in",
+      "role": "platform_admin",
+      "passwordHash": "7cc3b06e4cd452d273f31dd0291b03ab:bd86f1164efe2da8e770a92c4e7d69987c1c4348c858732c0ffd3ed7a05d30f07af9f7c56a21354bf2f9e9e626c6979563cef0b8fc90c52eeb3fe3756d4de988",
+      "status": "active",
+      "createdAt": "2026-10-27T08:40:24.700Z"
+    },
+    {
+      "id": "usr_college_admin_01",
+      "fullName": "Dr. S. K. Kulkarni",
+      "email": "registrar@niet.edu.in",
+      "role": "college_admin",
+      "institutionName": "National Institute of Engineering & Technology",
+      "institutionCode": "AICTE-1-4928172",
+      "passwordHash": "7cc3b06e4cd452d273f31dd0291b03ab:bd86f1164efe2da8e770a92c4e7d69987c1c4348c858732c0ffd3ed7a05d30f07af9f7c56a21354bf2f9e9e626c6979563cef0b8fc90c52eeb3fe3756d4de988",
+      "status": "approved",
+      "createdAt": "2026-10-27T08:40:24.702Z"
+    },
+    {
+      "id": "usr_student_01",
+      "fullName": "Aarav Sharma",
+      "email": "aarav.sharma@student.niet.edu.in",
+      "apaarId": "210420241234",
+      "role": "student",
+      "institutionName": "National Institute of Engineering & Technology",
+      "institutionCode": "NIET-2006-AICTE",
+      "passwordHash": "7cc3b06e4cd452d273f31dd0291b03ab:bd86f1164efe2da8e770a92c4e7d69987c1c4348c858732c0ffd3ed7a05d30f07af9f7c56a21354bf2f9e9e626c6979563cef0b8fc90c52eeb3fe3756d4de988",
+      "status": "active",
+      "createdAt": "2026-10-27T08:40:24.702Z"
+    },
+    {
+      "id": "usr_stu_1793090425044",
+      "fullName": "Pooja Hegde",
+      "email": "test.student.1793090425046@college.edu.in",
+      "apaarId": "988674349888",
+      "role": "student",
+      "institutionName": "Coimbatore Institute of Technology",
+      "passwordHash": "ce794dd96bb0342db579c82f350f5ab5:701a98b72b43559ca1b84c83ffe54fe92f13328add408243033c19c38a20077fb4aafe7a1ca37ee372eb9ec88c0e6beb2ce6cdb18cda7a1f56c8efb0e9d22ee2",
+      "status": "active",
+      "createdAt": "2026-10-27T08:40:25.118Z"
+    },
+    {
+      "id": "usr_col_1793090425211",
+      "fullName": "Dr. Vikram Seth",
+      "email": "registrar.1793090425212@rvce.edu.in",
+      "role": "college_admin",
+      "institutionName": "R. V. College of Engineering",
+      "institutionCode": "1-5760067",
+      "passwordHash": "f9d114668d7d8910d56dd459a55011a9:6f6a62cb4bdffbe6715bfddfddef17ee1aeb17b2bf57a6c4ce19e56b7e167d9a7db42f41c908704ebb8544ec153a2939a261ea983ec28675032ce534ddb38414",
+      "status": "approved",
+      "createdAt": "2026-10-27T08:40:25.275Z"
+    }
+  ],
+  "studentProfiles": [
+    {
+      "id": "prof_student_01",
+      "userId": "usr_student_01",
+      "apaarId": "210420241234",
+      "fullName": "Aarav Sharma",
+      "email": "aarav.sharma@student.niet.edu.in",
+      "institutionName": "National Institute of Engineering & Technology",
+      "institutionCode": "NIET-2006-AICTE",
+      "department": "Computer Science & Engineering",
+      "course": "B.Tech — Computer Science & Engineering",
+      "yearOfStudy": "4th Year (Final Year)",
+      "registrationNumber": "2021NIET0841",
+      "phone": "+91 98765 43210",
+      "dob": "15 Aug 2003",
+      "gender": "Male",
+      "bloodGroup": "B+",
+      "digilockerConnected": true,
+      "lastSync": "27/10/2026, 2:10:24 pm"
+    },
+    {
+      "id": "prof_988674349888",
+      "userId": "usr_stu_1793090425044",
+      "apaarId": "988674349888",
+      "fullName": "Pooja Hegde",
+      "email": "test.student.1793090425046@college.edu.in",
+      "institutionName": "Coimbatore Institute of Technology",
+      "institutionCode": "AICTE-REG-9888",
+      "department": "Engineering / Applied Sciences",
+      "course": "Undergraduate Program",
+      "yearOfStudy": "1st Year",
+      "registrationNumber": "REG349888",
+      "phone": "",
+      "dob": "01 Jan 2004",
+      "gender": "Other",
+      "bloodGroup": "Unknown",
+      "digilockerConnected": false,
+      "lastSync": "27/10/2026, 2:10:25 pm"
+    }
+  ]
+}
