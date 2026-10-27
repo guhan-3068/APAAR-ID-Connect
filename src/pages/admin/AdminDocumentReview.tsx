@@ -16,6 +16,7 @@ import {
   AlertCircle
 } from 'lucide-react'
 import { useAdmin } from '@/context/AdminContext'
+import { UploadStudentDocModal } from '@/components/admin/UploadStudentDocModal'
 import type { AdminDocumentReviewItem } from '@/types'
 
 const ITEMS_PER_PAGE = 8
@@ -326,6 +327,7 @@ export const AdminDocumentReview: React.FC = () => {
   )
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<AdminDocumentReviewItem | null>(null)
+  const [showUploadModal, setShowUploadModal] = useState(false)
 
   useEffect(() => {
     const s = searchParams.get('status')
@@ -379,6 +381,12 @@ export const AdminDocumentReview: React.FC = () => {
         />
       )}
 
+      {showUploadModal && (
+        <UploadStudentDocModal
+          onClose={() => setShowUploadModal(false)}
+        />
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Total Documents', value: stats.total, icon: <FileSearch size={16} className="text-blue-600" />, color: 'border-blue-100' },
@@ -422,6 +430,15 @@ export const AdminDocumentReview: React.FC = () => {
                 <option key={key} value={key}>{val.label}</option>
               ))}
             </select>
+
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white shadow-xs transition-colors ml-auto sm:ml-0"
+              title="Upload an official academic document or marksheet for a student"
+            >
+              <UploadCloud size={13} />
+              <span>Upload Document</span>
+            </button>
           </div>
         </div>
 

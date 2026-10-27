@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { studentApi } from '@/services/portalApiService'
 import {
   mockStudentProfile,
   mockAcademicRecords,
@@ -113,7 +114,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     }
   }, [user, authProfile])
-  const [academicRecords] = useState<AcademicRecordItem[]>(mockAcademicRecords)
+  const [academicRecords, setAcademicRecords] = useState<AcademicRecordItem[]>(mockAcademicRecords)
   const [documents, setDocuments] = useState<StudentDocumentItem[]>(() => {
     try {
       const saved = localStorage.getItem('apaar_student_documents')
@@ -147,6 +148,59 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [consentAuditLogs, setConsentAuditLogs] = useState<VerificationAuditTrailItem[]>(mockConsentAuditTrail)
   const [toast, setToast] = useState<StudentToast | null>(null)
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // REAL DATABASE FETCH FUNCTION
+  // ─────────────────────────────────────────────────────────────────────────
+  const fetchDashboardData = useCallback(async () => {
+    if (!user || user.role !== 'student') return
+
+    try {
+      const data = await studentApi.getDashboard()
+      if (data && data.success) {
+        if (data.student) {
+          setProfile((prev) => ({
+            ...prev,
+            ...data.student,
+            institutionName: data.college?.name || data.student.institutionName || prev.institutionName,
+            institutionCode: data.college?.code || data.student.institutionCode || prev.institutionCode,
+          }))
+        }
+        if (Array.isArray(data.academicRecords) && data.academicRecords.length > 0) {
+          setAcademicRecords(data.academicRecords)
+        }
+        if (Array.isArray(data.documents)) {
+          const mappedDocs: StudentDocumentItem[] = data.documents.map((d: any) => ({
+            id: d.id,
+            title: d.title,
+            type: d.documentType || d.type || 'Academic Document',
+            fileName: d.fileName,
+            fileSize: d.fileSize || '1.2 MB',
+            uploadDate: d.uploadDate,
+            status: d.reviewStatus === 'accepted_for_verification' ? 'verified' : d.reviewStatus === 'requires_correction' ? 'requires_review' : (d.status || 'pending'),
+            remarks: d.correctionNotes || d.remarks,
+            canRemove: false,
+            hashDigest: d.hashDigest || 'SHA256:verified',
+            availability: d.reviewStatus === 'requires_correction' ? 'Correction Required' : d.reviewStatus === 'accepted_for_verification' ? 'Available' : 'Pending Verification',
+            correctionReason: d.correctionNotes,
+          }))
+          setDocuments(mappedDocs)
+        }
+        if (Array.isArray(data.verificationRequests) && data.verificationRequests.length > 0) {
+          setVerificationRequests(data.verificationRequests)
+        }
+        if (Array.isArray(data.notifications)) {
+          setNotifications(data.notifications)
+        }
+      }
+    } catch {
+      // Keep existing data in state
+    }
+  }, [user])
+
+  useEffect(() => {
+    fetchDashboardData()
+  }, [fetchDashboardData])
+
   // Persist documents to localStorage
   useEffect(() => {
     try {
@@ -168,6 +222,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Listen for real-time updates dispatched by College Management
   useEffect(() => {
     const handleCollegeUpdate = () => {
+      fetchDashboardData()
       try {
         const savedDocs = localStorage.getItem('apaar_student_documents')
         if (savedDocs) {
@@ -182,12 +237,14 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
     window.addEventListener('apaar_college_doc_update', handleCollegeUpdate)
+    window.addEventListener('apaar:student-data-changed', handleCollegeUpdate)
     window.addEventListener('storage', handleCollegeUpdate)
     return () => {
       window.removeEventListener('apaar_college_doc_update', handleCollegeUpdate)
+      window.removeEventListener('apaar:student-data-changed', handleCollegeUpdate)
       window.removeEventListener('storage', handleCollegeUpdate)
     }
-  }, [])
+  }, [fetchDashboardData])
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Date.now()
@@ -292,15 +349,31 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     setNotifications((prev) => [studentNotif, ...prev])
     showToast(`Verification request ${refNo} created successfully.`, 'success')
+
+    // Persist to real database backend
+    studentApi
+      .submitVerificationRequest(recordTitle, purpose, notes)
+      .then((serverReq) => {
+        if (serverReq && serverReq.id) {
+          setVerificationRequests((prev) =>
+            prev.map((r) => (r.id === newReq.id ? { ...r, id: serverReq.id, referenceNo: serverReq.referenceNo } : r))
+          )
+        }
+        window.dispatchEvent(new CustomEvent('apaar_college_doc_update'))
+      })
+      .catch(() => {})
+
     return newReq
   }, [showToast])
 
   const markNotificationRead = useCallback((id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    studentApi.markNotificationRead(id).catch(() => {})
   }, [])
 
   const markAllNotificationsRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+    studentApi.markAllNotificationsRead().catch(() => {})
     showToast('All student notifications marked as read.', 'info')
   }, [showToast])
 
