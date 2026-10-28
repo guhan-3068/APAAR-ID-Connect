@@ -1,4 +1,4 @@
-﻿# APAAR CONNECT AI --- Local Production Web & Auth Server
+# APAAR CONNECT AI --- Local Production Web & Auth Server
 param (
     [int]$Port = 5173
 )
@@ -161,8 +161,8 @@ while ($listener.IsListening) {
             continue
         }
 
-        # Auth API endpoints
-        if ($path.StartsWith("/api/auth")) {
+        # API endpoints
+        if ($path.StartsWith("/api/")) {
             $db = Get-Database
 
             # Read Body
@@ -175,6 +175,65 @@ while ($listener.IsListening) {
             $bodyObj = $null
             if ($body) {
                 try { $bodyObj = $body | ConvertFrom-Json } catch {}
+            }
+
+            if (($path -eq "/api/colleges" -or $path -eq "/api/auth/colleges") -and $method -eq "GET") {
+                $cols = @()
+                if ($db.colleges) {
+                    $cols = @($db.colleges | ForEach-Object {
+                        [PSCustomObject]@{
+                            id = $_.id
+                            code = $_.code
+                            name = $_.name
+                            state = $_.state
+                            district = $_.district
+                            type = $_.type
+                            departments = if ($_.departments) { $_.departments } else { @('Computer Science and Engineering', 'Information Technology', 'Electronics and Communication Engineering', 'Mechanical Engineering', 'Civil Engineering') }
+                        }
+                    })
+                }
+                Send-JsonResponse $response 200 @{ success = $true; colleges = $cols }
+                continue
+            }
+
+            if ($path -match "^/api/colleges/([^/]+)/departments$" -and $method -eq "GET") {
+                $targetId = $matches[1]
+                $matched = $null
+                if ($db.colleges) {
+                    $matched = $db.colleges | Where-Object { $_.id -eq $targetId -or $_.code -eq $targetId } | Select-Object -First 1
+                }
+                $depts = @()
+                if ($matched -and $matched.departments) {
+                    $depts = @($matched.departments)
+                } else {
+                    $depts = @('Computer Science and Engineering', 'Information Technology', 'Electronics and Communication Engineering', 'Mechanical Engineering', 'Civil Engineering')
+                }
+                Send-JsonResponse $response 200 @{ success = $true; collegeId = $targetId; departments = $depts }
+                continue
+            }
+
+            if ($path -eq "/api/college/departments" -and $method -eq "PUT") {
+                $authHeader = $request.Headers["Authorization"]
+                $saved = @()
+                if ($bodyObj -and $bodyObj.departments) {
+                    $saved = @($bodyObj.departments | ForEach-Object { [string]$_ })
+                }
+                if ($authHeader -and $authHeader.StartsWith("Bearer ")) {
+                    $t = $authHeader.Substring(7)
+                    $p = Decode-JwtToken $t
+                    if ($p -and $p.userId) {
+                        $u = $db.users | Where-Object { $_.id -eq $p.userId } | Select-Object -First 1
+                        if ($u -and $u.collegeId -and $db.colleges) {
+                            $c = $db.colleges | Where-Object { $_.id -eq $u.collegeId } | Select-Object -First 1
+                            if ($c) {
+                                $c.departments = $saved
+                                Save-Database $db
+                            }
+                        }
+                    }
+                }
+                Send-JsonResponse $response 200 @{ success = $true; departments = $saved }
+                continue
             }
 
             if ($path -eq "/api/auth/status" -and $method -eq "GET") {
@@ -305,6 +364,11 @@ while ($listener.IsListening) {
             if ($path -eq "/api/auth/register/student" -and $method -eq "POST") {
                 $cleanApaar = [string]$bodyObj.apaarId -replace '\D', ''
                 $userId = "usr_stu_" + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                $selectedDept = if ($bodyObj.department -and $bodyObj.department.Trim()) { [string]$bodyObj.department.Trim() } else { "" }
+                $selectedColId = if ($bodyObj.collegeId -and $bodyObj.collegeId.Trim()) { [string]$bodyObj.collegeId.Trim() } else { "col_niet_01" }
+                $selectedCourse = if ($bodyObj.course -and $bodyObj.course.Trim()) { [string]$bodyObj.course.Trim() } else { "B.Tech — Undergraduate Programme" }
+                $selectedYear = if ($bodyObj.academicYear -and $bodyObj.academicYear.Trim()) { [string]$bodyObj.academicYear.Trim() } else { "1st Year (Semester 1)" }
+                $selectedRegNo = if ($bodyObj.registrationNumber -and $bodyObj.registrationNumber.Trim()) { [string]$bodyObj.registrationNumber.Trim() } else { "REG" + $cleanApaar.Substring($cleanApaar.Length - 6) }
 
                 $newUser = [PSCustomObject]@{
                     id = $userId
@@ -312,7 +376,9 @@ while ($listener.IsListening) {
                     email = [string]$bodyObj.email.ToLower()
                     apaarId = $cleanApaar
                     role = "student"
+                    collegeId = $selectedColId
                     institutionName = [string]$bodyObj.institutionName
+                    department = $selectedDept
                     passwordHash = New-PasswordHash ([string]$bodyObj.password)
                     status = "active"
                     createdAt = [DateTime]::UtcNow.ToString("o")
@@ -321,20 +387,22 @@ while ($listener.IsListening) {
                 $newProfile = [PSCustomObject]@{
                     id = "prof_$cleanApaar"
                     userId = $userId
+                    collegeId = $selectedColId
                     apaarId = $cleanApaar
                     fullName = [string]$bodyObj.fullName
                     email = [string]$bodyObj.email.ToLower()
                     institutionName = [string]$bodyObj.institutionName
-                    institutionCode = "AICTE-REG-" + $cleanApaar.Substring($cleanApaar.Length - 4)
-                    department = "Engineering / Applied Sciences"
-                    course = "Undergraduate Program"
-                    yearOfStudy = "1st Year"
-                    registrationNumber = "REG" + $cleanApaar.Substring($cleanApaar.Length - 6)
+                    institutionCode = if ($bodyObj.collegeCode) { [string]$bodyObj.collegeCode } else { "AICTE-REG-" + $cleanApaar.Substring($cleanApaar.Length - 4) }
+                    department = $selectedDept
+                    course = $selectedCourse
+                    yearOfStudy = $selectedYear
+                    registrationNumber = $selectedRegNo
                     phone = ""
                     dob = "01 Jan 2004"
                     gender = "Other"
                     bloodGroup = "Unknown"
                     digilockerConnected = $false
+                    verificationStatus = "verified"
                     lastSync = [DateTime]::Now.ToString("dd/MM/yyyy, hh:mm:ss tt")
                 }
 
@@ -342,6 +410,11 @@ while ($listener.IsListening) {
                 $dbUsers.Add($newUser) | Out-Null
                 $dbProfiles = [System.Collections.ArrayList]@($db.studentProfiles)
                 $dbProfiles.Add($newProfile) | Out-Null
+                if ($db.students) {
+                    $dbStudents = [System.Collections.ArrayList]@($db.students)
+                    $dbStudents.Add($newProfile) | Out-Null
+                    $db.students = $dbStudents
+                }
                 $db.users = $dbUsers
                 $db.studentProfiles = $dbProfiles
                 Save-Database $db
@@ -351,6 +424,7 @@ while ($listener.IsListening) {
                     email = $newUser.email
                     role = $newUser.role
                     apaarId = $newUser.apaarId
+                    collegeId = $selectedColId
                 }
 
                 Send-JsonResponse $response 201 @{
@@ -358,17 +432,40 @@ while ($listener.IsListening) {
                     message = "Student account registered successfully."
                     token = $token
                     user = $newUser
+                    profile = $newProfile
                 }
                 continue
             }
 
             if ($path -eq "/api/auth/register/college" -and $method -eq "POST") {
                 $userId = "usr_col_" + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                $colId = "col_" + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                $colDepts = if ($bodyObj.departments -and ($bodyObj.departments -is [System.Array])) {
+                    @($bodyObj.departments | ForEach-Object { [string]$_ })
+                } else {
+                    @('Computer Science and Engineering', 'Information Technology', 'Electronics and Communication Engineering', 'Mechanical Engineering', 'Civil Engineering')
+                }
+
+                $newCollege = [PSCustomObject]@{
+                    id = $colId
+                    code = [string]$bodyObj.aicteCode
+                    name = [string]$bodyObj.institutionName
+                    state = "All India"
+                    district = "Administrative HQ"
+                    type = "AICTE Recognized Technical Institution"
+                    status = "approved"
+                    contactEmail = [string]$bodyObj.email.ToLower()
+                    adminUserId = $userId
+                    departments = $colDepts
+                    createdAt = [DateTime]::UtcNow.ToString("o")
+                }
+
                 $newUser = [PSCustomObject]@{
                     id = $userId
                     fullName = [string]$bodyObj.fullName
                     email = [string]$bodyObj.email.ToLower()
                     role = "college_admin"
+                    collegeId = $colId
                     institutionName = [string]$bodyObj.institutionName
                     institutionCode = [string]$bodyObj.aicteCode
                     passwordHash = New-PasswordHash ([string]$bodyObj.password)
@@ -379,6 +476,12 @@ while ($listener.IsListening) {
                 $dbUsers = [System.Collections.ArrayList]@($db.users)
                 $dbUsers.Add($newUser) | Out-Null
                 $db.users = $dbUsers
+
+                if ($db.colleges) {
+                    $dbCols = [System.Collections.ArrayList]@($db.colleges)
+                    $dbCols.Add($newCollege) | Out-Null
+                    $db.colleges = $dbCols
+                }
                 Save-Database $db
 
                 $token = New-JwtToken @{
@@ -386,6 +489,7 @@ while ($listener.IsListening) {
                     email = $newUser.email
                     role = $newUser.role
                     institutionCode = $newUser.institutionCode
+                    collegeId = $colId
                 }
 
                 Send-JsonResponse $response 201 @{
