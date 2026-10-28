@@ -20,6 +20,20 @@ dist-ssr
 # Vercel deployment cache
 .vercel
 
+# Backups, cache & temporary files
+*.bak
+*.tmp
+server/data/*.bak
+
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
