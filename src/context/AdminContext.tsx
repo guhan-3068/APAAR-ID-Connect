@@ -133,6 +133,8 @@ interface AdminContextType {
   }) => Promise<{ success: boolean; message: string; document: AdminDocumentReviewItem; academicRecord?: AdminAcademicRecord }>
   searchStudents: (query: string, searchType?: 'all' | 'registrationNumber' | 'apaarId') => Promise<StudentSearchResult[]>
   refreshCollegeData: () => Promise<void>
+  departments: string[]
+  updateDepartments: (departments: string[]) => Promise<void>
 }
 
 const AdminContext = createContext<AdminContextType | undefined>(undefined)
@@ -159,12 +161,16 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [dataQualityIssues, setDataQualityIssues] = useState<DataQualityIssueItem[]>([])
   const [auditLog, setAuditLog] = useState<AuditLogItem[]>([])
   const [notifications, setNotifications] = useState<AdminNotification[]>([])
+  const [departments, setDepartments] = useState<string[]>([])
   const [toast, setToast] = useState<AdminToast | null>(null)
 
   const fetchCollegeData = useCallback(async () => {
     try {
       const res = await collegeApi.getDashboard()
       if (res && res.success) {
+        if (Array.isArray(res.college?.departments)) {
+          setDepartments(res.college.departments)
+        }
         if (Array.isArray(res.students)) {
           const mappedStudents: AdminStudentRecord[] = res.students.map((s: any) => ({
             id: s.id,
@@ -864,6 +870,15 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return collegeApi.searchStudents(query, searchType)
   }, [])
 
+  const updateDepartments = useCallback(
+    async (newDepts: string[]) => {
+      const updated = await collegeApi.updateDepartments(newDepts)
+      setDepartments(updated)
+      showToast('Official institutional departments updated successfully.', 'success')
+    },
+    [showToast]
+  )
+
   // Computed summary metrics
   const stats = useMemo(() => {
     const verifiedStudentsCount = students.filter((s) => s.status === 'verified').length
@@ -929,6 +944,8 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         uploadStudentDocument,
         searchStudents,
         refreshCollegeData: fetchCollegeData,
+        departments,
+        updateDepartments,
       }}
     >
       {children}

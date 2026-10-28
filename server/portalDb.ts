@@ -218,11 +218,15 @@ export function resolveDbFilePath(): string {
 
   const candidates = [
     DB_FILE,
+    path.resolve(process.cwd(), 'server', 'data', 'auth_database.json'),
+    path.resolve(process.cwd(), 'server/data/auth_database.json'),
     path.resolve(process.cwd(), 'IMPORTANT SIH/APAAR ID (1)/APAAR ID/server/data/auth_database.json'),
   ]
   try {
     const metaDir = (import.meta as any).dirname || path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'))
     candidates.push(path.join(metaDir, 'data', 'auth_database.json'))
+    candidates.push(path.resolve(metaDir, '..', 'server', 'data', 'auth_database.json'))
+    candidates.push(path.resolve(metaDir, 'server', 'data', 'auth_database.json'))
   } catch {}
 
   for (const c of candidates) {
@@ -786,6 +790,12 @@ export function getDatabase(): DatabaseSchema {
       const parsed = JSON.parse(fs.readFileSync(dbPath, 'utf-8'))
       if (parsed.colleges && parsed.students && parsed.academicRecords) {
         dbCache = sanitizeDatabase(parsed)
+        // In serverless environments, mirror to /tmp for persistent mutations during container lifetime
+        if (process.env.VERCEL) {
+          try {
+            fs.writeFileSync(tmpDbFile, JSON.stringify(dbCache, null, 2), 'utf-8')
+          } catch {}
+        }
         return dbCache
       }
       // Migrate legacy schema to relational schema
@@ -804,6 +814,19 @@ export function getDatabase(): DatabaseSchema {
 export function saveDatabase(db: DatabaseSchema): void {
   dbCache = db
   const jsonStr = JSON.stringify(db, null, 2)
+
+  // In Vercel serverless environments, the deployment directory is strictly read-only.
+  // Directly persist to /tmp to avoid EROFS exceptions and ensure instant response times.
+  if (process.env.VERCEL) {
+    try {
+      const tmpDbFile = path.join('/tmp', 'auth_database.json')
+      fs.writeFileSync(tmpDbFile, jsonStr, 'utf-8')
+      return
+    } catch {
+      // Kept in memory cache
+      return
+    }
+  }
 
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -947,7 +970,7 @@ export const dbService = {
         normalizeInstitutionCode(c.code) === normCode
     )
 
-    if (college && college.departments && Array.isArray(college.departments) && college.departments.length > 0) {
+    if (college && Array.isArray(college.departments)) {
       return college.departments
     }
 
@@ -961,17 +984,6 @@ export const dbService = {
 
     if (defaults && defaults.length > 0) {
       return defaults
-    }
-
-    // If college exists, fallback to standard technical departments
-    if (college) {
-      return [
-        'Computer Science and Engineering',
-        'Information Technology',
-        'Electronics and Communication Engineering',
-        'Mechanical Engineering',
-        'Civil Engineering',
-      ]
     }
 
     return []

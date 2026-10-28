@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Build outputs & dependencies
 node_modules
 dist
 dist-ssr
@@ -30,6 +31,16 @@ venv/
 .venv/
 env/
 
+# Uploaded documents & private files
+uploads/
+server/uploads/
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
 # OS artifacts
 Thumbs.db
 .DS_Store
@@ -38,7 +49,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj

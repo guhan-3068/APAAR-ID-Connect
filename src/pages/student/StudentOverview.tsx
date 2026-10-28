@@ -81,7 +81,7 @@ export const StudentOverview: React.FC = () => {
               </div>
 
               <div className="text-xs text-slate-500 pt-0.5">
-                Reg No: <span className="font-mono font-bold text-slate-700">{profile.registrationNumber}</span> • {profile.course} • {profile.department}
+                Reg No: <span className="font-mono font-bold text-slate-700">{profile.registrationNumber}</span> • {profile.course} {profile.department ? `• ${profile.department}` : ''}
               </div>
             </div>
           </div>

@@ -69,6 +69,7 @@ export interface RegisterCollegeData {
   institutionName: string
   aicteCode: string
   password: string
+  departments?: string[]
 }
 
 export interface RegisterPlatformAdminData {
@@ -258,11 +259,11 @@ class AuthService {
   /**
    * Retrieve authoritative list of registered institutions
    */
-  public async getColleges(): Promise<Array<{ id: string; code: string; name: string; state?: string }>> {
+  public async getColleges(): Promise<Array<{ id: string; code: string; name: string; state?: string; departments?: string[] }>> {
     try {
       const res = await this.request<{
         success: boolean
-        colleges: Array<{ id: string; code: string; name: string; state?: string }>
+        colleges: Array<{ id: string; code: string; name: string; state?: string; departments?: string[] }>
       }>('/api/colleges', {
         method: 'GET',
       })
@@ -276,15 +277,11 @@ class AuthService {
    * Retrieve configured departments for an institution
    */
   public async getCollegeDepartments(collegeId: string): Promise<string[]> {
-    try {
-      const res = await this.request<{ success: boolean; departments: string[] }>(
-        `/api/colleges/${encodeURIComponent(collegeId)}/departments`,
-        { method: 'GET' }
-      )
-      return res.departments || []
-    } catch {
-      return []
-    }
+    const res = await this.request<{ success: boolean; departments: string[] }>(
+      `/api/colleges/${encodeURIComponent(collegeId)}/departments`,
+      { method: 'GET' }
+    )
+    return res.departments || []
   }
 
   /**

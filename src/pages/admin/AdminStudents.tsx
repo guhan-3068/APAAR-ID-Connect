@@ -246,7 +246,7 @@ const StudentDetailModal: React.FC<{
 )
 
 export const AdminStudents: React.FC = () => {
-  const { students, adminProfile, showToast } = useAdmin()
+  const { students, adminProfile, showToast, departments: collegeConfiguredDepts } = useAdmin()
 
   const [searchParams] = useSearchParams()
   const initialStatus = (searchParams.get('status') as AdminStudentRecord['status']) || 'all'
@@ -280,7 +280,10 @@ export const AdminStudents: React.FC = () => {
     showToast('Authorized student directory exported as CSV.', 'success')
   }
 
-  const departments = ['all', ...Array.from(new Set(students.map((s) => s.department)))]
+  const departments = [
+    'all',
+    ...Array.from(new Set([...(collegeConfiguredDepts || []), ...students.map((s) => s.department)].filter(Boolean))),
+  ]
 
   // Filter students
   const filtered = useMemo(() => {

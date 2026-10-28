@@ -140,8 +140,8 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
       return
     }
 
-    if (file.size > 15 * 1024 * 1024) {
-      setSubmitError('File size exceeds the 15 MB limit. Please select a smaller file.')
+    if (file.size > 3.5 * 1024 * 1024) {
+      setSubmitError('File size exceeds the 3.5 MB serverless upload limit. Please select a smaller file.')
       return
     }
 
@@ -590,7 +590,7 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
                         <p className="font-semibold text-slate-800 text-xs">
                           Click to select or drag and drop official document file
                         </p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Supports PDF, PNG, JPG (Max 15MB)</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Supports PDF, PNG, JPG (Max 3.5MB)</p>
                       </div>
                     )}
                   </div>

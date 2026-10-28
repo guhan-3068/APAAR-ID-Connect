@@ -654,7 +654,7 @@ export async function handleAuthRequest(
         db.colleges.push(matchedCollege)
       }
 
-      // 2. Department Resolution & Validation
+      // 2. Department Resolution & Validation (Optional)
       let finalDepartment = (department || '').trim()
       const collegeDepartments = dbService.getCollegeDepartments(matchedCollege.id)
 
@@ -663,17 +663,12 @@ export async function handleAuthRequest(
           const cleanDept = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, ' ').trim()
           const normDept = cleanDept(finalDepartment)
           const matched = collegeDepartments.find((d) => cleanDept(d) === normDept)
-          if (!matched) {
-            sendJson(res, 400, {
-              error: `Selected department "${finalDepartment}" is not offered by ${matchedCollege.name}. Please select a valid department from the college list.`,
-            })
-            return true
+          if (matched) {
+            finalDepartment = matched
           }
-          finalDepartment = matched
         }
       } else {
-        // Fallback for programmatic API clients if department omitted
-        finalDepartment = (collegeDepartments && collegeDepartments[0]) || 'Computer Science and Engineering'
+        finalDepartment = ''
       }
 
       const userId = `usr_stu_${Date.now()}`
@@ -735,6 +730,7 @@ export async function handleAuthRequest(
         success: true,
         message: 'Student account registered successfully.',
         token,
+        redirectPath: '/student',
         user: newUser,
         profile: newStudent,
       })
@@ -743,7 +739,7 @@ export async function handleAuthRequest(
 
     if (endpoint === '/api/auth/register/college' && req.method === 'POST') {
       const body = await parseBody(req)
-      const { fullName, email, institutionName, aicteCode, password } = body
+      const { fullName, email, institutionName, aicteCode, password, departments } = body
 
       if (!fullName || !email || !institutionName || !aicteCode || !password) {
         sendJson(res, 400, { error: 'All fields are required.' })
@@ -857,6 +853,21 @@ export async function handleAuthRequest(
         db.colleges.push(effectiveCollege)
       }
 
+      if (Array.isArray(departments) && departments.length > 0) {
+        effectiveCollege.departments = departments
+          .map((d: string) => String(d).trim())
+          .filter((d: string) => d.length > 0)
+      } else if (!effectiveCollege.departments || effectiveCollege.departments.length === 0) {
+        const fallbackDepts = dbService.getCollegeDepartments(effectiveCollege.id)
+        effectiveCollege.departments = fallbackDepts.length > 0 ? fallbackDepts : [
+          'Computer Science and Engineering',
+          'Information Technology',
+          'Electronics and Communication Engineering',
+          'Mechanical Engineering',
+          'Civil Engineering',
+        ]
+      }
+
       const newUser: UserRecord = {
         id: userId,
         fullName: fullName.trim(),
@@ -885,6 +896,7 @@ export async function handleAuthRequest(
         success: true,
         message: 'College institution registered successfully.',
         token,
+        redirectPath: '/admin',
         user: newUser,
         college: effectiveCollege,
       })

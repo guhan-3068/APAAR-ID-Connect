@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ShieldCheck,
@@ -25,6 +25,10 @@ import {
   Briefcase,
   Clock,
   Hash,
+  Loader2,
+  RotateCcw,
+  X,
+  Plus,
 } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { Input } from '@/components/common/Input'
@@ -77,6 +81,85 @@ const PortalCard: React.FC<PortalCardProps> = ({
   </div>
 )
 
+/* Pre-populated authoritative institutions directory */
+const DEFAULT_REGISTERED_COLLEGES: Array<{
+  id: string
+  code: string
+  name: string
+  state?: string
+  departments?: string[]
+}> = [
+  {
+    id: 'col_1793115697005',
+    code: 'AICTE-2026',
+    name: 'VELALAR COLLEGE OF ENGINEERING AND TECHNOLOGY',
+    state: 'All India',
+    departments: [
+      'Computer Science and Engineering',
+      'Artificial Intelligence and Data Science',
+      'Information Technology',
+      'Electronics and Communication Engineering',
+      'Biomedical Engineering',
+    ],
+  },
+  {
+    id: 'col_niet_01',
+    code: 'NIET-2006-AICTE',
+    name: 'National Institute of Engineering & Technology',
+    state: 'Delhi NCR',
+    departments: [
+      'Computer Science and Engineering',
+      'Information Technology',
+      'Electronics and Communication Engineering',
+      'Mechanical Engineering',
+      'Civil Engineering',
+      'Electrical and Electronics Engineering',
+      'Biotechnology',
+    ],
+  },
+  {
+    id: 'col_cit_02',
+    code: 'CIT-1956-AICTE',
+    name: 'Coimbatore Institute of Technology',
+    state: 'Tamil Nadu',
+    departments: [
+      'Computer Science and Engineering',
+      'Information Technology',
+      'Artificial Intelligence and Data Science',
+      'Electronics and Communication Engineering',
+      'Mechanical Engineering',
+      'Civil Engineering',
+      'Chemical Engineering',
+    ],
+  },
+  {
+    id: 'col_rvce_03',
+    code: '1-4270909',
+    name: 'R. V. College of Engineering',
+    state: 'Karnataka',
+    departments: [
+      'Computer Science and Engineering',
+      'Information Science and Engineering',
+      'Electronics and Communication Engineering',
+      'Mechanical Engineering',
+      'Aerospace Engineering',
+    ],
+  },
+  {
+    id: 'col_1793096977650',
+    code: 'AICTE-3456',
+    name: 'KPR INSTITUTE OF ENGINEERING AND TECHONOLOGY',
+    state: 'Tamil Nadu',
+    departments: [
+      'Computer Science and Engineering',
+      'Artificial Intelligence and Data Science',
+      'Information Technology',
+      'Mechanical Engineering',
+      'Civil Engineering',
+    ],
+  },
+]
+
 export const Register: React.FC = () => {
   const navigate = useNavigate()
   const { registerStudent, registerCollege, registerPlatformAdmin } = useAuth()
@@ -92,23 +175,38 @@ export const Register: React.FC = () => {
   const [institutionName, setInstitutionName] = useState('')
   const [selectedCollegeId, setSelectedCollegeId] = useState('')
   const [collegeCode, setCollegeCode] = useState('')
-  const [collegesList, setCollegesList] = useState<Array<{ id: string; code: string; name: string; state?: string }>>([])
+  const [collegesList, setCollegesList] = useState<Array<{ id: string; code: string; name: string; state?: string; departments?: string[] }>>(DEFAULT_REGISTERED_COLLEGES)
   const [isLoadingColleges, setIsLoadingColleges] = useState(false)
+  const [collegeFetchError, setCollegeFetchError] = useState<string | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   /* ---- Student-specific fields --------------------------------------- */
   const [apaarId, setApaarId] = useState('')
-  const [department, setDepartment] = useState('')
   const [course, setCourse] = useState('B.Tech — Undergraduate Programme')
   const [registrationNumber, setRegistrationNumber] = useState('')
   const [academicYear, setAcademicYear] = useState('1st Year (Semester 1)')
-  const [departmentsList, setDepartmentsList] = useState<string[]>([])
-  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false)
   const [agreePrivacy, setAgreePrivacy] = useState(false)
 
   /* ---- College Admin-specific fields --------------------------------- */
   const [aicteCode, setAicteCode] = useState('')
+  const STANDARD_AICTE_DEPARTMENTS = [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+  ]
+  const [adminDepartments, setAdminDepartments] = useState<string[]>([
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Electronics and Communication Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+  ])
+  const [newAdminDeptInput, setNewAdminDeptInput] = useState('')
   const [agreeAdminDeclaration, setAgreeAdminDeclaration] = useState(false)
 
   /* ---- Platform Admin-specific fields -------------------------------- */
@@ -137,58 +235,24 @@ export const Register: React.FC = () => {
   }, [])
 
   // Load authoritative college list
-  useEffect(() => {
-    let isMounted = true
-    async function loadColleges() {
-      setIsLoadingColleges(true)
-      try {
-        const list = await authService.getColleges()
-        if (isMounted && Array.isArray(list) && list.length > 0) {
-          setCollegesList(list)
-        }
-      } catch {
-        // Fallback silently if offline
-      } finally {
-        if (isMounted) setIsLoadingColleges(false)
+  const loadColleges = useCallback(async () => {
+    setIsLoadingColleges(true)
+    setCollegeFetchError(null)
+    try {
+      const list = await authService.getColleges()
+      if (Array.isArray(list) && list.length > 0) {
+        setCollegesList(list)
       }
-    }
-    loadColleges()
-    return () => {
-      isMounted = false
+    } catch (err: any) {
+      setCollegeFetchError(err?.message || 'Failed to refresh institution directory from central registry.')
+    } finally {
+      setIsLoadingColleges(false)
     }
   }, [])
 
-  // Dynamically load departments for selected college
   useEffect(() => {
-    if (selectedPortal !== 'student') return
-    if (!selectedCollegeId || selectedCollegeId === 'other') {
-      setDepartmentsList([])
-      setDepartment('')
-      return
-    }
-
-    let isMounted = true
-    setIsLoadingDepartments(true)
-    authService
-      .getCollegeDepartments(selectedCollegeId)
-      .then((depts) => {
-        if (!isMounted) return
-        setIsLoadingDepartments(false)
-        setDepartmentsList(depts || [])
-        // Reset department selection when college changes
-        setDepartment('')
-      })
-      .catch(() => {
-        if (isMounted) {
-          setIsLoadingDepartments(false)
-          setDepartmentsList([])
-        }
-      })
-
-    return () => {
-      isMounted = false
-    }
-  }, [selectedCollegeId, selectedPortal])
+    loadColleges()
+  }, [loadColleges])
 
   /* ------------------------------------------------------------------ */
   /* Helpers                                                             */
@@ -203,12 +267,18 @@ export const Register: React.FC = () => {
     setSelectedCollegeId('')
     setCollegeCode('')
     setApaarId('')
-    setDepartment('')
     setCourse('B.Tech — Undergraduate Programme')
     setRegistrationNumber('')
     setAcademicYear('1st Year (Semester 1)')
-    setDepartmentsList([])
     setAicteCode('')
+    setAdminDepartments([
+      'Computer Science and Engineering',
+      'Information Technology',
+      'Electronics and Communication Engineering',
+      'Mechanical Engineering',
+      'Civil Engineering',
+    ])
+    setNewAdminDeptInput('')
     setUsername('')
     setEmployeeId('')
     setDesignation('')
@@ -281,10 +351,6 @@ export const Register: React.FC = () => {
           errs.collegeCode = 'AICTE / Institution identifier is required to link with your college portal'
         }
       }
-
-      if (!department || !department.trim()) {
-        errs.department = 'Please select or enter your academic department'
-      }
     } else if (selectedPortal === 'college_admin') {
       const instVal = validateRequired(institutionName, 'Institution name')
       if (!instVal.isValid) errs.institutionName = instVal.error!
@@ -306,6 +372,10 @@ export const Register: React.FC = () => {
     if (selectedPortal === 'college_admin') {
       const aicteVal = validateRequired(aicteCode, 'AICTE Permanent Institution Code')
       if (!aicteVal.isValid) errs.aicteCode = aicteVal.error!
+
+      if (adminDepartments.length === 0) {
+        errs.departments = 'Please configure at least one academic department offered by your institution'
+      }
 
       if (!agreeAdminDeclaration) {
         errs.agreeAdminDeclaration =
@@ -358,7 +428,7 @@ export const Register: React.FC = () => {
 
     try {
       if (selectedPortal === 'student') {
-        await registerStudent({
+        const res = await registerStudent({
           fullName,
           email,
           institutionName,
@@ -366,23 +436,23 @@ export const Register: React.FC = () => {
           collegeCode: collegeCode.trim() || undefined,
           apaarId,
           password,
-          department,
           course,
           academicYear,
           registrationNumber: registrationNumber.trim() || undefined,
         })
         setIsLoading(false)
-        setStep('success')
+        navigate(res.redirectPath || '/student')
       } else if (selectedPortal === 'college_admin') {
-        await registerCollege({
+        const res = await registerCollege({
           fullName,
           email,
           institutionName,
           aicteCode,
           password,
+          departments: adminDepartments,
         })
         setIsLoading(false)
-        setStep('success')
+        navigate(res.redirectPath || '/admin')
       } else if (selectedPortal === 'platform_admin') {
         const effectiveQuestion = securityQuestion === 'custom' ? customSecurityQuestion : securityQuestion
         const res = await registerPlatformAdmin({
@@ -398,12 +468,16 @@ export const Register: React.FC = () => {
           invitationCode: invitationCode.trim() || undefined,
         })
         setIsLoading(false)
-        setEnrollmentStatus({
-          activated: res.activated,
-          pendingApproval: res.pendingApproval,
-          message: res.message,
-        })
-        setStep('success')
+        if (res.activated) {
+          navigate(res.redirectPath || '/platform')
+        } else {
+          setEnrollmentStatus({
+            activated: res.activated,
+            pendingApproval: res.pendingApproval,
+            message: res.message,
+          })
+          setStep('success')
+        }
       }
     } catch (err: any) {
       setIsLoading(false)
@@ -896,14 +970,45 @@ export const Register: React.FC = () => {
                   />
 
                   {/* Institution Name / Selection */}
-                  {selectedPortal === 'student' && collegesList.length > 0 ? (
+                  {selectedPortal === 'student' ? (
                     <div>
-                      <label
-                        className="block text-xs font-semibold text-slate-700 mb-1.5"
-                        htmlFor="reg-college-select"
-                      >
-                        College / Institution <span className="text-red-500">*</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label
+                          className="block text-xs font-semibold text-slate-700"
+                          htmlFor="reg-college-select"
+                        >
+                          College / Institution <span className="text-red-500">*</span>
+                        </label>
+                        {isLoadingColleges && (
+                          <span className="flex items-center gap-1 text-[11px] text-blue-600 font-medium">
+                            <Loader2 size={12} className="animate-spin" />
+                            <span>Updating directory...</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {collegeFetchError && (
+                        <div className="p-3 mb-2 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold flex items-center gap-1.5">
+                              <AlertCircle size={14} className="text-rose-600 shrink-0" />
+                              Unable to refresh institution directory
+                            </span>
+                            <button
+                              type="button"
+                              onClick={loadColleges}
+                              className="px-2.5 py-1 bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                            >
+                              <RotateCcw size={12} />
+                              <span>Retry</span>
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-rose-700 leading-relaxed">
+                            {collegeFetchError}
+                          </p>
+                        </div>
+                      )}
+
                       <div className="relative">
                         <select
                           id="reg-college-select"
@@ -934,7 +1039,7 @@ export const Register: React.FC = () => {
                           required
                         >
                           <option value="">
-                            {isLoadingColleges
+                            {isLoadingColleges && collegesList.length === 0
                               ? '-- Loading Registered Institutions... --'
                               : '-- Select Your Authorized College / Institution --'}
                           </option>
@@ -1000,83 +1105,6 @@ export const Register: React.FC = () => {
                       error={errors.institutionName}
                       leftIcon={<Building2 size={16} />}
                     />
-                  )}
-
-                  {/* Department Selection — Student only */}
-                  {selectedPortal === 'student' && (
-                    <div>
-                      {selectedCollegeId === 'other' ? (
-                        <Input
-                          label="Academic Department"
-                          id="reg-department-manual"
-                          value={department}
-                          onChange={(e) => {
-                            setDepartment(e.target.value)
-                            if (errors.department) {
-                              setErrors((p) => ({ ...p, department: undefined }))
-                            }
-                          }}
-                          error={errors.department}
-                          placeholder="e.g. Computer Science and Engineering"
-                          required
-                        />
-                      ) : (
-                        <>
-                          <label
-                            className="block text-xs font-semibold text-slate-700 mb-1.5"
-                            htmlFor="reg-department-select"
-                          >
-                            Department <span className="text-red-500">*</span>
-                          </label>
-                          <div className="relative">
-                            <select
-                              id="reg-department-select"
-                              value={department}
-                              onChange={(e) => {
-                                setDepartment(e.target.value)
-                                if (errors.department) {
-                                  setErrors((p) => ({ ...p, department: undefined }))
-                                }
-                              }}
-                              disabled={!selectedCollegeId || isLoadingDepartments}
-                              className={`w-full rounded-xl border ${
-                                errors.department
-                                  ? 'border-red-400 bg-red-50/20'
-                                  : 'border-slate-300 bg-white'
-                              } px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all font-medium disabled:bg-slate-100 disabled:text-slate-400`}
-                              required
-                            >
-                              <option value="">
-                                {!selectedCollegeId
-                                  ? '-- Please select your College / Institution first --'
-                                  : isLoadingDepartments
-                                  ? '-- Loading configured college departments... --'
-                                  : departmentsList.length === 0
-                                  ? '-- No departments configured by college administrator --'
-                                  : '-- Select Your Academic Department --'}
-                              </option>
-                              {departmentsList.map((d) => (
-                                <option key={d} value={d}>
-                                  {d}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {errors.department && (
-                            <p className="mt-1 text-[11px] text-red-600 font-medium">
-                              {errors.department}
-                            </p>
-                          )}
-
-                          {selectedCollegeId && !isLoadingDepartments && departmentsList.length === 0 && (
-                            <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
-                              ⚠️ <strong>Department list unconfigured:</strong> An authorized administrator for this institution can configure and maintain the official department list in the College Management Portal.
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
                   )}
 
                   {/* College Registration Number — Student only */}
@@ -1175,6 +1203,106 @@ export const Register: React.FC = () => {
                       helperText="Issued by AICTE for approved technical institutions"
                       required
                     />
+                  )}
+
+                  {/* Department Configuration — College Admin only */}
+                  {selectedPortal === 'college_admin' && (
+                    <div className="space-y-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-800">
+                            Offered Academic Departments <span className="text-red-500">*</span>
+                          </label>
+                          <p className="text-[11px] text-slate-500">
+                            Configure departments offered by your institution. Enrolling students will choose from this list.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdminDepartments(STANDARD_AICTE_DEPARTMENTS)
+                            if (errors.departments) setErrors((p) => ({ ...p, departments: undefined }))
+                          }}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 cursor-pointer shrink-0"
+                          title="Reset to recommended AICTE technical departments"
+                        >
+                          <RotateCcw size={12} />
+                          <span>Standard AICTE</span>
+                        </button>
+                      </div>
+
+                      {/* Add custom department input */}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newAdminDeptInput}
+                          onChange={(e) => setNewAdminDeptInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const trimmed = newAdminDeptInput.trim()
+                              if (trimmed && !adminDepartments.some((d) => d.toLowerCase() === trimmed.toLowerCase())) {
+                                setAdminDepartments([...adminDepartments, trimmed])
+                                setNewAdminDeptInput('')
+                                if (errors.departments) setErrors((p) => ({ ...p, departments: undefined }))
+                              }
+                            }
+                          }}
+                          placeholder="Add department (e.g. Biomedical Engineering)"
+                          className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all font-medium"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          leftIcon={<Plus size={14} />}
+                          onClick={() => {
+                            const trimmed = newAdminDeptInput.trim()
+                            if (trimmed && !adminDepartments.some((d) => d.toLowerCase() === trimmed.toLowerCase())) {
+                              setAdminDepartments([...adminDepartments, trimmed])
+                              setNewAdminDeptInput('')
+                              if (errors.departments) setErrors((p) => ({ ...p, departments: undefined }))
+                            }
+                          }}
+                          disabled={!newAdminDeptInput.trim()}
+                        >
+                          Add
+                        </Button>
+                      </div>
+
+                      {/* Chips of configured departments */}
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap gap-1.5">
+                          {adminDepartments.map((dept) => (
+                            <span
+                              key={dept}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 text-[11px] font-medium shadow-2xs"
+                            >
+                              <span>{dept}</span>
+                              <button
+                                type="button"
+                                onClick={() => setAdminDepartments(adminDepartments.filter((d) => d !== dept))}
+                                className="text-slate-400 hover:text-rose-600 rounded p-0.5 cursor-pointer transition-colors"
+                                title={`Remove ${dept}`}
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        {adminDepartments.length === 0 && (
+                          <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                            ⚠️ At least one department must be configured for your college. Click &quot;Standard AICTE&quot; above to add recommended departments.
+                          </p>
+                        )}
+                      </div>
+
+                      {errors.departments && (
+                        <p className="text-[11px] text-red-600 font-medium">
+                          {errors.departments}
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {/* Passwords */}
