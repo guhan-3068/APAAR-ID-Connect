@@ -158,7 +158,7 @@ export async function handleAuthRequest(
     // 1. AUTHENTICATION ROUTES (/api/auth/*)
     // ═════════════════════════════════════════════════════════════
 
-    if (endpoint === '/api/auth/status' && req.method === 'GET') {
+    if ((endpoint === '/api' || endpoint === '/api/' || endpoint === '/api/auth/status') && req.method === 'GET') {
       const db = getDatabase()
       sendJson(res, 200, {
         status: 'online',
