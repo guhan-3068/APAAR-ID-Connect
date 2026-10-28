@@ -9,7 +9,6 @@ import {
   ShieldAlert, 
   Calendar, 
   ArrowRight,
-  Info,
   Check
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
@@ -48,15 +47,6 @@ export const StudentNotifications: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Synthetic Demonstration Disclaimer */}
-      <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200/80 flex items-center justify-between text-xs text-purple-900">
-        <div className="flex items-center gap-2">
-          <Info size={16} className="text-purple-600 shrink-0" />
-          <span>
-            <strong>Demonstration Notifications:</strong> Synthetic alert events generated to simulate real-time registrar updates, DigiLocker syncs, and verification deadlines.
-          </span>
-        </div>
-      </div>
 
       {/* Header & Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -173,7 +163,9 @@ export const StudentNotifications: React.FC = () => {
         ) : (
           <Card className="py-12 text-center text-slate-400 text-xs">
             <Bell size={32} className="mx-auto text-slate-300 mb-2" />
-            <p className="font-semibold text-slate-700">No notifications to display</p>
+            <p className="font-semibold text-slate-700">
+              {notifications.length === 0 ? 'No notifications yet.' : 'No notifications match your filter.'}
+            </p>
             <p className="text-slate-400 mt-0.5">
               {filter === 'unread' ? 'You have read all your notifications.' : 'Your notification inbox is currently clear.'}
             </p>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ShieldCheck,
@@ -19,6 +19,12 @@ import {
   Info,
   AlertTriangle,
   AlertCircle,
+  KeyRound,
+  Shield,
+  HelpCircle,
+  Briefcase,
+  Clock,
+  Hash,
 } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { Input } from '@/components/common/Input'
@@ -31,6 +37,7 @@ import {
 } from '@/utils/authValidation'
 import { formatApaarId, isValidApaarId } from '@/utils/formatters'
 import { useAuth } from '@/context/AuthContext'
+import { authService } from '@/services/authService'
 
 type Portal = 'student' | 'college_admin' | 'platform_admin'
 type Step = 'choose_portal' | 'fill_form' | 'success'
@@ -72,7 +79,7 @@ const PortalCard: React.FC<PortalCardProps> = ({
 
 export const Register: React.FC = () => {
   const navigate = useNavigate()
-  const { registerStudent, registerCollege } = useAuth()
+  const { registerStudent, registerCollege, registerPlatformAdmin } = useAuth()
 
   const [step, setStep] = useState<Step>('choose_portal')
   const [selectedPortal, setSelectedPortal] = useState<Portal>('student')
@@ -83,21 +90,105 @@ export const Register: React.FC = () => {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [institutionName, setInstitutionName] = useState('')
+  const [selectedCollegeId, setSelectedCollegeId] = useState('')
+  const [collegeCode, setCollegeCode] = useState('')
+  const [collegesList, setCollegesList] = useState<Array<{ id: string; code: string; name: string; state?: string }>>([])
+  const [isLoadingColleges, setIsLoadingColleges] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   /* ---- Student-specific fields --------------------------------------- */
   const [apaarId, setApaarId] = useState('')
+  const [department, setDepartment] = useState('')
+  const [course, setCourse] = useState('B.Tech — Undergraduate Programme')
+  const [registrationNumber, setRegistrationNumber] = useState('')
+  const [academicYear, setAcademicYear] = useState('1st Year (Semester 1)')
+  const [departmentsList, setDepartmentsList] = useState<string[]>([])
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false)
   const [agreePrivacy, setAgreePrivacy] = useState(false)
 
   /* ---- College Admin-specific fields --------------------------------- */
   const [aicteCode, setAicteCode] = useState('')
   const [agreeAdminDeclaration, setAgreeAdminDeclaration] = useState(false)
 
+  /* ---- Platform Admin-specific fields -------------------------------- */
+  const [username, setUsername] = useState('')
+  const [employeeId, setEmployeeId] = useState('')
+  const [designation, setDesignation] = useState('')
+  const [securityQuestion, setSecurityQuestion] = useState('What was the name of your first school?')
+  const [customSecurityQuestion, setCustomSecurityQuestion] = useState('')
+  const [securityAnswer, setSecurityAnswer] = useState('')
+  const [invitationCode, setInvitationCode] = useState('')
+  const [enrollmentStatus, setEnrollmentStatus] = useState<{ activated?: boolean; pendingApproval?: boolean; message?: string }>({})
+
   /* ---- UI state ------------------------------------------------------ */
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const [generalError, setGeneralError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Support ?portal= query parameter
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const portalParam = params.get('portal')
+    if (portalParam === 'platform_admin' || portalParam === 'college_admin' || portalParam === 'student') {
+      setSelectedPortal(portalParam)
+      setStep('fill_form')
+    }
+  }, [])
+
+  // Load authoritative college list
+  useEffect(() => {
+    let isMounted = true
+    async function loadColleges() {
+      setIsLoadingColleges(true)
+      try {
+        const list = await authService.getColleges()
+        if (isMounted && Array.isArray(list) && list.length > 0) {
+          setCollegesList(list)
+        }
+      } catch {
+        // Fallback silently if offline
+      } finally {
+        if (isMounted) setIsLoadingColleges(false)
+      }
+    }
+    loadColleges()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  // Dynamically load departments for selected college
+  useEffect(() => {
+    if (selectedPortal !== 'student') return
+    if (!selectedCollegeId || selectedCollegeId === 'other') {
+      setDepartmentsList([])
+      setDepartment('')
+      return
+    }
+
+    let isMounted = true
+    setIsLoadingDepartments(true)
+    authService
+      .getCollegeDepartments(selectedCollegeId)
+      .then((depts) => {
+        if (!isMounted) return
+        setIsLoadingDepartments(false)
+        setDepartmentsList(depts || [])
+        // Reset department selection when college changes
+        setDepartment('')
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsLoadingDepartments(false)
+          setDepartmentsList([])
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [selectedCollegeId, selectedPortal])
 
   /* ------------------------------------------------------------------ */
   /* Helpers                                                             */
@@ -109,8 +200,23 @@ export const Register: React.FC = () => {
     setPassword('')
     setConfirmPassword('')
     setInstitutionName('')
+    setSelectedCollegeId('')
+    setCollegeCode('')
     setApaarId('')
+    setDepartment('')
+    setCourse('B.Tech — Undergraduate Programme')
+    setRegistrationNumber('')
+    setAcademicYear('1st Year (Semester 1)')
+    setDepartmentsList([])
     setAicteCode('')
+    setUsername('')
+    setEmployeeId('')
+    setDesignation('')
+    setSecurityQuestion('What was the name of your first school?')
+    setCustomSecurityQuestion('')
+    setSecurityAnswer('')
+    setInvitationCode('')
+    setEnrollmentStatus({})
     setAgreePrivacy(false)
     setAgreeAdminDeclaration(false)
     setErrors({})
@@ -134,26 +240,55 @@ export const Register: React.FC = () => {
     if (!nameVal.isValid) errs.fullName = nameVal.error!
 
     const emailVal = validateEmail(email)
-    if (!emailVal.isValid) errs.email = emailVal.error!
-
-    // College admin: enforce educational domain
-    if (
+    if (!emailVal.isValid) {
+      errs.email = emailVal.error!
+    } else if (
       selectedPortal === 'college_admin' &&
-      email.trim() &&
       !/\.(edu\.in|gov\.in|ac\.in|nic\.in)$/i.test(email.trim())
     ) {
-      errs.email =
-        'Official institutional email must use a permitted domain (e.g. .edu.in, .gov.in, .ac.in)'
+      errs.email = 'Official institutional email must use a permitted domain (e.g. .edu.in, .gov.in, .ac.in)'
+    } else if (
+      selectedPortal === 'platform_admin' &&
+      !/\.(gov\.in|nic\.in|ac\.in|edu\.in)$/i.test(email.trim()) &&
+      !/@aicte\.gov\.in$/i.test(email.trim())
+    ) {
+      errs.email = 'Official administrator email must belong to an authorized domain (.gov.in, .nic.in, .ac.in, .edu.in)'
     }
 
     const passwordVal = validatePassword(password, 8)
-    if (!passwordVal.isValid) errs.password = passwordVal.error!
+    if (!passwordVal.isValid) {
+      errs.password = passwordVal.error!
+    } else if (selectedPortal === 'platform_admin') {
+      const hasUpper = /[A-Z]/.test(password)
+      const hasLower = /[a-z]/.test(password)
+      const hasDigitOrSpecial = /[\d!@#$%^&*(),.?":{}|<>]/.test(password)
+      if (!hasUpper || !hasLower || !hasDigitOrSpecial) {
+        errs.password = 'Strong password policy required: Must include uppercase, lowercase, and at least one number or symbol'
+      }
+    }
 
     const matchVal = validatePasswordMatch(password, confirmPassword)
     if (!matchVal.isValid) errs.confirmPassword = matchVal.error!
 
-    const instVal = validateRequired(institutionName, 'Institution name')
-    if (!instVal.isValid) errs.institutionName = instVal.error!
+    if (selectedPortal === 'student') {
+      if (!selectedCollegeId && !institutionName.trim()) {
+        errs.institutionName = 'Please select your college / institution'
+      } else if (selectedCollegeId === 'other') {
+        if (!institutionName.trim()) {
+          errs.institutionName = 'Institution name is required'
+        }
+        if (!collegeCode.trim()) {
+          errs.collegeCode = 'AICTE / Institution identifier is required to link with your college portal'
+        }
+      }
+
+      if (!department || !department.trim()) {
+        errs.department = 'Please select or enter your academic department'
+      }
+    } else if (selectedPortal === 'college_admin') {
+      const instVal = validateRequired(institutionName, 'Institution name')
+      if (!instVal.isValid) errs.institutionName = instVal.error!
+    }
 
     if (selectedPortal === 'student') {
       const cleanedId = apaarId.replace(/\D/g, '')
@@ -175,6 +310,29 @@ export const Register: React.FC = () => {
       if (!agreeAdminDeclaration) {
         errs.agreeAdminDeclaration =
           'You must certify that you are an authorized institutional representative'
+      }
+    }
+
+    if (selectedPortal === 'platform_admin') {
+      if (!username.trim()) {
+        errs.username = 'Administrative username is required'
+      } else if (!/^[a-zA-Z0-9_]{3,30}$/.test(username.trim())) {
+        errs.username = 'Username must be 3–30 characters long and contain only letters, numbers, and underscores'
+      }
+
+      const empVal = validateRequired(employeeId, 'Employee / Officer ID')
+      if (!empVal.isValid) errs.employeeId = empVal.error!
+
+      const desVal = validateRequired(designation, 'Official Designation')
+      if (!desVal.isValid) errs.designation = desVal.error!
+
+      const effectiveQuestion = securityQuestion === 'custom' ? customSecurityQuestion : securityQuestion
+      if (!effectiveQuestion.trim() || effectiveQuestion.trim().length < 5) {
+        errs.securityQuestion = 'Security question must be at least 5 characters long'
+      }
+
+      if (!securityAnswer.trim() || securityAnswer.trim().length < 2) {
+        errs.securityAnswer = 'Security question answer is required (minimum 2 characters)'
       }
     }
 
@@ -204,9 +362,17 @@ export const Register: React.FC = () => {
           fullName,
           email,
           institutionName,
+          collegeId: selectedCollegeId && selectedCollegeId !== 'other' ? selectedCollegeId : undefined,
+          collegeCode: collegeCode.trim() || undefined,
           apaarId,
           password,
+          department,
+          course,
+          academicYear,
+          registrationNumber: registrationNumber.trim() || undefined,
         })
+        setIsLoading(false)
+        setStep('success')
       } else if (selectedPortal === 'college_admin') {
         await registerCollege({
           fullName,
@@ -215,9 +381,30 @@ export const Register: React.FC = () => {
           aicteCode,
           password,
         })
+        setIsLoading(false)
+        setStep('success')
+      } else if (selectedPortal === 'platform_admin') {
+        const effectiveQuestion = securityQuestion === 'custom' ? customSecurityQuestion : securityQuestion
+        const res = await registerPlatformAdmin({
+          fullName,
+          email,
+          username,
+          employeeId,
+          designation,
+          password,
+          confirmPassword,
+          securityQuestion: effectiveQuestion,
+          securityAnswer,
+          invitationCode: invitationCode.trim() || undefined,
+        })
+        setIsLoading(false)
+        setEnrollmentStatus({
+          activated: res.activated,
+          pendingApproval: res.pendingApproval,
+          message: res.message,
+        })
+        setStep('success')
       }
-      setIsLoading(false)
-      setStep('success')
     } catch (err: any) {
       setIsLoading(false)
       setGeneralError(err.message || 'Registration failed. Please verify your details.')
@@ -318,9 +505,9 @@ export const Register: React.FC = () => {
                 </div>
               }
               title="Platform Admin Portal"
-              description="Restricted to authorized AICTE platform administrators. Access is provisioned exclusively through official government channels — public self-registration is not permitted."
+              description="For authorized AICTE nodal officers and platform administrators. Enroll using an administrative invitation token or submit an authorization request."
               accentColor="border-rose-200 hover:border-rose-300"
-              buttonLabel="Platform Admin Access"
+              buttonLabel="Enroll as Platform Admin"
               onClick={() => selectPortal('platform_admin')}
             />
           </div>
@@ -342,49 +529,279 @@ export const Register: React.FC = () => {
       {(step === 'fill_form' || step === 'success') && (
         <div className="max-w-lg w-full mx-auto">
           <Card className="border border-slate-200/90 shadow-xl rounded-2xl p-6 sm:p-8 bg-white/95 backdrop-blur-md">
-            {/* Platform Admin Restriction (no form) */}
-            {selectedPortal === 'platform_admin' && (
-              <div className="rounded-xl border border-rose-200 bg-rose-50/70 p-6 space-y-4 text-center">
-                <div className="h-14 w-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
-                  <ShieldAlert size={30} />
-                </div>
-                <div className="space-y-1.5">
-                  <h2 className="text-lg font-bold text-rose-900">
-                    Public Registration Not Permitted
+            {/* Platform Admin Registration Form */}
+            {selectedPortal === 'platform_admin' && step === 'fill_form' && (
+              <>
+                <div className="text-center space-y-1.5 mb-6">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-tr from-rose-600 via-indigo-600 to-purple-600 text-white shadow-md shadow-rose-500/20 mx-auto">
+                    <ShieldCheck size={24} />
+                  </div>
+                  <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                    Platform Administrator Enrollment
                   </h2>
-                  <p className="text-xs text-rose-800 leading-relaxed max-w-md mx-auto">
-                    In compliance with AICTE cybersecurity and Ministry of Education data
-                    protection mandates,{' '}
-                    <strong>Platform Administrator accounts cannot be self-registered</strong>.
-                  </p>
-                  <p className="text-[11px] text-rose-700 leading-relaxed max-w-md mx-auto pt-1">
-                    Platform Admin credentials are provisioned exclusively through authorized
-                    government nodal authorities. An administrative account (`admin@aicte.gov.in`) has
-                    been provisioned for official platform operations.
+                  <p className="text-xs text-slate-500">
+                    AICTE Central Authority & Platform Operations Onboarding
                   </p>
                 </div>
-                <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-                  <Link to="/login">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-rose-300 text-rose-800 hover:bg-rose-100"
-                    >
-                      Go to Sign In
-                    </Button>
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStep('choose_portal')
-                      resetForm()
+
+                {/* Privileged Enrollment Notice */}
+                <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 space-y-1 leading-relaxed">
+                  <div className="flex items-center gap-1.5 font-bold text-rose-800">
+                    <ShieldAlert size={14} className="shrink-0" />
+                    <span>Privileged Enrollment Policy</span>
+                  </div>
+                  <p className="text-[11px] text-rose-700">
+                    Platform Administrator registration requires an official government email and a unique security question. Entering an authorized invitation token activates the account immediately; otherwise, requests remain pending central administrative approval.
+                  </p>
+                </div>
+
+                {generalError && (
+                  <div className="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 flex items-start gap-2.5 leading-relaxed">
+                    <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
+                    <span>{generalError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                  {/* Full Name */}
+                  <Input
+                    label="Full Name & Title"
+                    id="admin-fullname"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => {
+                      setFullName(e.target.value)
+                      if (errors.fullName) setErrors((prev) => ({ ...prev, fullName: undefined }))
                     }}
-                    className="text-xs font-semibold text-rose-700 underline hover:text-rose-900 cursor-pointer"
+                    error={errors.fullName}
+                    leftIcon={<User size={16} />}
+                    placeholder="e.g. Dr. Anil Sahasrabudhe"
+                    autoComplete="name"
+                    required
+                  />
+
+                  {/* Official Email */}
+                  <Input
+                    label="Official Government / Educational Email"
+                    id="admin-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }))
+                    }}
+                    error={errors.email}
+                    leftIcon={<Mail size={16} />}
+                    placeholder="e.g. nodal.officer@aicte.gov.in"
+                    helperText="Must end in .gov.in, .nic.in, .ac.in, or .edu.in"
+                    autoComplete="email"
+                    required
+                  />
+
+                  {/* Administrative Username */}
+                  <Input
+                    label="Administrative Username"
+                    id="admin-username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => {
+                      setUsername(e.target.value)
+                      if (errors.username) setErrors((prev) => ({ ...prev, username: undefined }))
+                    }}
+                    error={errors.username}
+                    leftIcon={<User size={16} />}
+                    placeholder="e.g. aicte_nodal_officer"
+                    helperText="Letters, numbers, and underscores (3–30 characters)"
+                    autoComplete="username"
+                    required
+                  />
+
+                  {/* Identification: Employee ID & Designation */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Input
+                      label="Employee / Officer ID"
+                      id="admin-empid"
+                      type="text"
+                      value={employeeId}
+                      onChange={(e) => {
+                        setEmployeeId(e.target.value)
+                        if (errors.employeeId) setErrors((prev) => ({ ...prev, employeeId: undefined }))
+                      }}
+                      error={errors.employeeId}
+                      leftIcon={<Briefcase size={16} />}
+                      placeholder="e.g. AICTE-EMP-1042"
+                      required
+                    />
+
+                    <Input
+                      label="Official Designation"
+                      id="admin-designation"
+                      type="text"
+                      value={designation}
+                      onChange={(e) => {
+                        setDesignation(e.target.value)
+                        if (errors.designation) setErrors((prev) => ({ ...prev, designation: undefined }))
+                      }}
+                      error={errors.designation}
+                      leftIcon={<Building2 size={16} />}
+                      placeholder="e.g. Central Nodal Officer"
+                      required
+                    />
+                  </div>
+
+                  {/* Password & Confirm Password */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Input
+                      label="Password"
+                      id="admin-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value)
+                        if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }))
+                      }}
+                      error={errors.password}
+                      leftIcon={<Lock size={16} />}
+                      rightIcon={
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      }
+                      placeholder="Min 8 characters"
+                      autoComplete="new-password"
+                      required
+                    />
+
+                    <Input
+                      label="Confirm Password"
+                      id="admin-confirm-password"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value)
+                        if (errors.confirmPassword) setErrors((prev) => ({ ...prev, confirmPassword: undefined }))
+                      }}
+                      error={errors.confirmPassword}
+                      leftIcon={<Lock size={16} />}
+                      rightIcon={
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                          aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      }
+                      placeholder="Re-enter password"
+                      autoComplete="new-password"
+                      required
+                    />
+                  </div>
+
+                  {/* Security Question Selection */}
+                  <div className="space-y-1">
+                    <label htmlFor="admin-security-question" className="block text-xs font-semibold text-slate-700">
+                      Unique Security Question
+                    </label>
+                    <div className="relative">
+                      <select
+                        id="admin-security-question"
+                        value={securityQuestion}
+                        onChange={(e) => {
+                          setSecurityQuestion(e.target.value)
+                          if (errors.securityQuestion) setErrors((prev) => ({ ...prev, securityQuestion: undefined }))
+                        }}
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition-all cursor-pointer shadow-sm"
+                      >
+                        <option value="What was the name of your first school?">What was the name of your first school?</option>
+                        <option value="What was the name of your first teacher?">What was the name of your first teacher?</option>
+                        <option value="What was the first book you remember reading?">What was the first book you remember reading?</option>
+                        <option value="What was the name of your first childhood friend?">What was the name of your first childhood friend?</option>
+                        <option value="What was the model of your first car or bike?">What was the model of your first car or bike?</option>
+                        <option value="custom">Write a custom security question...</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Custom Security Question Input */}
+                  {securityQuestion === 'custom' && (
+                    <Input
+                      label="Your Custom Security Question"
+                      id="admin-custom-question"
+                      type="text"
+                      value={customSecurityQuestion}
+                      onChange={(e) => {
+                        setCustomSecurityQuestion(e.target.value)
+                        if (errors.securityQuestion) setErrors((prev) => ({ ...prev, securityQuestion: undefined }))
+                      }}
+                      error={errors.securityQuestion}
+                      leftIcon={<HelpCircle size={16} />}
+                      placeholder="e.g. In which city was your first government appointment?"
+                      required
+                    />
+                  )}
+
+                  {/* Security Answer */}
+                  <div>
+                    <Input
+                      label="Security Question Answer"
+                      id="admin-security-answer"
+                      type="text"
+                      value={securityAnswer}
+                      onChange={(e) => {
+                        setSecurityAnswer(e.target.value)
+                        if (errors.securityAnswer) setErrors((prev) => ({ ...prev, securityAnswer: undefined }))
+                      }}
+                      error={errors.securityAnswer}
+                      leftIcon={<KeyRound size={16} />}
+                      placeholder="Enter your security answer"
+                      autoComplete="off"
+                      required
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500 leading-normal">
+                      Security questions are an auxiliary recovery and verification measure. Answers are normalized (case-insensitive) and hashed using salted PBKDF2 before storage. Never share your answer.
+                    </p>
+                  </div>
+
+                  {/* Invitation Token / Code */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="admin-invitation-code" className="text-xs font-semibold text-slate-700">
+                        Administrator Invitation Code (Optional)
+                      </label>
+                      <span className="text-[10px] uppercase font-bold text-slate-400">Optional</span>
+                    </div>
+                    <Input
+                      id="admin-invitation-code"
+                      type="text"
+                      value={invitationCode}
+                      onChange={(e) => setInvitationCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. AICTE-ADMIN-ENROLL-2026"
+                      leftIcon={<Shield size={16} />}
+                      className="font-mono uppercase tracking-wider"
+                    />
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      If provided with an authorized invitation token generated by the AICTE Central Operator, your account will be activated immediately. Without a token, your registration is submitted as a pending approval request.
+                    </p>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    isLoading={isLoading}
+                    className="w-full py-2.5 text-sm font-semibold bg-gradient-to-r from-rose-600 via-indigo-600 to-purple-600 hover:from-rose-700 hover:to-purple-700 shadow-md shadow-rose-500/20 rounded-xl"
+                    rightIcon={<ArrowRight size={16} />}
                   >
-                    Choose a different portal
-                  </button>
-                </div>
-              </div>
+                    Submit Administrator Enrollment
+                  </Button>
+                </form>
+              </>
             )}
 
             {/* Student / College Admin Form */}
@@ -478,21 +895,248 @@ export const Register: React.FC = () => {
                     required
                   />
 
-                  {/* Institution Name */}
-                  <Input
-                    label="Institution Name"
-                    id="reg-institution"
-                    value={institutionName}
-                    onChange={(e) => {
-                      setInstitutionName(e.target.value)
-                      if (errors.institutionName)
-                        setErrors((p) => ({ ...p, institutionName: undefined }))
-                    }}
-                    error={errors.institutionName}
-                    leftIcon={<Building2 size={16} />}
-                    placeholder="e.g. National Institute of Engineering & Technology"
-                    required
-                  />
+                  {/* Institution Name / Selection */}
+                  {selectedPortal === 'student' && collegesList.length > 0 ? (
+                    <div>
+                      <label
+                        className="block text-xs font-semibold text-slate-700 mb-1.5"
+                        htmlFor="reg-college-select"
+                      >
+                        College / Institution <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <select
+                          id="reg-college-select"
+                          value={selectedCollegeId}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setSelectedCollegeId(val)
+                            const found = collegesList.find((c) => c.id === val)
+                            if (found) {
+                              setInstitutionName(found.name)
+                              setCollegeCode(found.code)
+                            } else if (val !== 'other') {
+                              setInstitutionName('')
+                              setCollegeCode('')
+                            }
+                            if (errors.institutionName) {
+                              setErrors((p) => ({ ...p, institutionName: undefined }))
+                            }
+                            if (errors.collegeCode) {
+                              setErrors((p) => ({ ...p, collegeCode: undefined }))
+                            }
+                          }}
+                          className={`w-full rounded-xl border ${
+                            errors.institutionName
+                              ? 'border-red-400 bg-red-50/20'
+                              : 'border-slate-300 bg-white'
+                          } px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all font-medium`}
+                          required
+                        >
+                          <option value="">
+                            {isLoadingColleges
+                              ? '-- Loading Registered Institutions... --'
+                              : '-- Select Your Authorized College / Institution --'}
+                          </option>
+                          {collegesList.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                          <option value="other">Other / Enter Institution Manually</option>
+                        </select>
+                      </div>
+
+                      {selectedCollegeId === 'other' && (
+                        <div className="mt-2.5 space-y-2.5">
+                          <Input
+                            label="Institution Name"
+                            id="reg-institution-manual"
+                            value={institutionName}
+                            onChange={(e) => {
+                              setInstitutionName(e.target.value)
+                              if (errors.institutionName)
+                                setErrors((p) => ({ ...p, institutionName: undefined }))
+                            }}
+                            error={errors.institutionName}
+                            leftIcon={<Building2 size={16} />}
+                            placeholder="e.g. Velalar College of Engineering and Technology"
+                            required
+                          />
+                          <Input
+                            label="AICTE Permanent Institution Number / Code"
+                            id="reg-aicte-manual"
+                            value={collegeCode}
+                            onChange={(e) => {
+                              setCollegeCode(e.target.value)
+                              if (errors.collegeCode)
+                                setErrors((p) => ({ ...p, collegeCode: undefined }))
+                            }}
+                            error={errors.collegeCode}
+                            leftIcon={<Hash size={16} />}
+                            placeholder="e.g. AICTE-2026 or 1-1234567"
+                            helperText="Enter your institution's permanent AICTE / University affiliation number to automatically link your account with your college portal."
+                            required
+                          />
+                        </div>
+                      )}
+
+                      {errors.institutionName && selectedCollegeId !== 'other' && (
+                        <p className="mt-1 text-[11px] text-red-600 font-medium">
+                          {errors.institutionName}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <Input
+                      label="Institution Name"
+                      id="reg-institution"
+                      value={institutionName}
+                      onChange={(e) => {
+                        setInstitutionName(e.target.value)
+                        if (errors.institutionName)
+                          setErrors((p) => ({ ...p, institutionName: undefined }))
+                      }}
+                      error={errors.institutionName}
+                      leftIcon={<Building2 size={16} />}
+                    />
+                  )}
+
+                  {/* Department Selection — Student only */}
+                  {selectedPortal === 'student' && (
+                    <div>
+                      {selectedCollegeId === 'other' ? (
+                        <Input
+                          label="Academic Department"
+                          id="reg-department-manual"
+                          value={department}
+                          onChange={(e) => {
+                            setDepartment(e.target.value)
+                            if (errors.department) {
+                              setErrors((p) => ({ ...p, department: undefined }))
+                            }
+                          }}
+                          error={errors.department}
+                          placeholder="e.g. Computer Science and Engineering"
+                          required
+                        />
+                      ) : (
+                        <>
+                          <label
+                            className="block text-xs font-semibold text-slate-700 mb-1.5"
+                            htmlFor="reg-department-select"
+                          >
+                            Department <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <select
+                              id="reg-department-select"
+                              value={department}
+                              onChange={(e) => {
+                                setDepartment(e.target.value)
+                                if (errors.department) {
+                                  setErrors((p) => ({ ...p, department: undefined }))
+                                }
+                              }}
+                              disabled={!selectedCollegeId || isLoadingDepartments}
+                              className={`w-full rounded-xl border ${
+                                errors.department
+                                  ? 'border-red-400 bg-red-50/20'
+                                  : 'border-slate-300 bg-white'
+                              } px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all font-medium disabled:bg-slate-100 disabled:text-slate-400`}
+                              required
+                            >
+                              <option value="">
+                                {!selectedCollegeId
+                                  ? '-- Please select your College / Institution first --'
+                                  : isLoadingDepartments
+                                  ? '-- Loading configured college departments... --'
+                                  : departmentsList.length === 0
+                                  ? '-- No departments configured by college administrator --'
+                                  : '-- Select Your Academic Department --'}
+                              </option>
+                              {departmentsList.map((d) => (
+                                <option key={d} value={d}>
+                                  {d}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {errors.department && (
+                            <p className="mt-1 text-[11px] text-red-600 font-medium">
+                              {errors.department}
+                            </p>
+                          )}
+
+                          {selectedCollegeId && !isLoadingDepartments && departmentsList.length === 0 && (
+                            <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                              ⚠️ <strong>Department list unconfigured:</strong> An authorized administrator for this institution can configure and maintain the official department list in the College Management Portal.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* College Registration Number — Student only */}
+                  {selectedPortal === 'student' && (
+                    <Input
+                      label="College Registration / Roll Number (Optional)"
+                      id="reg-registration-number"
+                      value={registrationNumber}
+                      onChange={(e) => setRegistrationNumber(e.target.value)}
+                      placeholder="e.g. 2024CS0841"
+                      leftIcon={<Hash size={16} />}
+                      helperText="Official student registration or enrollment number issued by your college (if available)"
+                    />
+                  )}
+
+                  {/* Programme / Degree & Academic Year — Student only */}
+                  {selectedPortal === 'student' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label
+                          className="block text-xs font-semibold text-slate-700 mb-1.5"
+                          htmlFor="reg-course-input"
+                        >
+                          Programme / Degree
+                        </label>
+                        <input
+                          id="reg-course-input"
+                          type="text"
+                          value={course}
+                          onChange={(e) => setCourse(e.target.value)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all font-medium"
+                          placeholder="e.g. B.Tech / Undergraduate"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          className="block text-xs font-semibold text-slate-700 mb-1.5"
+                          htmlFor="reg-academic-year-select"
+                        >
+                          Academic Year / Semester
+                        </label>
+                        <select
+                          id="reg-academic-year-select"
+                          value={academicYear}
+                          onChange={(e) => setAcademicYear(e.target.value)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all font-medium"
+                        >
+                          <option value="1st Year (Semester 1)">1st Year (Semester 1)</option>
+                          <option value="1st Year (Semester 2)">1st Year (Semester 2)</option>
+                          <option value="2nd Year (Semester 3)">2nd Year (Semester 3)</option>
+                          <option value="2nd Year (Semester 4)">2nd Year (Semester 4)</option>
+                          <option value="3rd Year (Semester 5)">3rd Year (Semester 5)</option>
+                          <option value="3rd Year (Semester 6)">3rd Year (Semester 6)</option>
+                          <option value="4th Year (Semester 7)">4th Year (Semester 7)</option>
+                          <option value="4th Year (Semester 8)">4th Year (Semester 8)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
 
                   {/* APAAR ID — Student only */}
                   {selectedPortal === 'student' && (
@@ -708,6 +1352,96 @@ export const Register: React.FC = () => {
                   <Link to="/login" className="flex-1">
                     <Button variant="outline" size="sm" className="w-full">
                       Back to Sign In
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* Platform Admin Success / Pending Status */}
+            {step === 'success' && selectedPortal === 'platform_admin' && (
+              <div className="space-y-5 py-2">
+                <div className="flex items-center gap-4">
+                  {enrollmentStatus.activated ? (
+                    <div className="h-12 w-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                      <ShieldCheck size={28} />
+                    </div>
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                      <Clock size={28} />
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      {enrollmentStatus.activated
+                        ? 'Platform Administrator Account Activated'
+                        : 'Enrollment Request Submitted — Pending Approval'}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {enrollmentStatus.activated
+                        ? `Official credentials verified for ${fullName}`
+                        : `Application logged for ${fullName} (${employeeId})`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2.5">
+                  <p>
+                    <strong>Email:</strong> {email}
+                  </p>
+                  <p>
+                    <strong>Administrative Username:</strong> {username}
+                  </p>
+                  <p>
+                    <strong>Officer ID & Designation:</strong> {employeeId} — {designation}
+                  </p>
+                  <p>
+                    <strong>Security Question:</strong>{' '}
+                    <span className="italic text-slate-600">
+                      {securityQuestion === 'custom' ? customSecurityQuestion : securityQuestion}
+                    </span>
+                  </p>
+
+                  {enrollmentStatus.activated ? (
+                    <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] space-y-1">
+                      <p className="font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 size={13} className="shrink-0" />
+                        Account Activated via Authorized Invitation Token
+                      </p>
+                      <p className="text-emerald-700">
+                        Your platform administrator credentials and security question have been cryptographically verified and securely stored in the database. You may now sign in to the AICTE Administration Portal.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1">
+                      <p className="font-semibold flex items-center gap-1.5">
+                        <ShieldAlert size={13} className="shrink-0 text-amber-600" />
+                        Privileged Access Control — Authorization Required
+                      </p>
+                      <p className="text-amber-700 leading-relaxed">
+                        In accordance with AICTE privileged access policies, administrator registration requests without a pre-authorized token remain pending until an active system administrator approves them or a system operator provisions access via the secure server CLI.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="p-2.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 text-[11px]">
+                    <strong>Cryptographic Protection Note:</strong> Your security question answer is stored using a PBKDF2 hash with 100,000 iterations and a cryptographically random salt. It is never transmitted back or stored in plaintext.
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="flex-1 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-700 hover:to-rose-700"
+                    onClick={() => navigate('/login?portal=platform_admin')}
+                    rightIcon={<ArrowRight size={14} />}
+                  >
+                    Proceed to AICTE Portal Sign In
+                  </Button>
+                  <Link to="/" className="flex-1">
+                    <Button variant="outline" size="sm" className="w-full">
+                      Return to Home
                     </Button>
                   </Link>
                 </div>

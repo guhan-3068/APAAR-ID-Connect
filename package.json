@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:integration": "node --experimental-strip-types server/test_portal_integration.ts"
+    "test:integration": "node --experimental-strip-types server/test_portal_integration.ts",
+    "admin:provision": "node --experimental-strip-types server/provision_admin.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

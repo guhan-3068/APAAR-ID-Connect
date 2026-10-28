@@ -392,7 +392,7 @@ const VerificationDetailModal: React.FC<{
 )
 
 export const AdminVerificationRequests: React.FC = () => {
-  const { verificationRequests, approveVerification, rejectVerification, showToast } = useAdmin()
+  const { verificationRequests, adminProfile, approveVerification, rejectVerification, showToast } = useAdmin()
 
   const [searchParams] = useSearchParams()
   const initialParam = searchParams.get('status')
@@ -421,7 +421,8 @@ export const AdminVerificationRequests: React.FC = () => {
       search,
       status: statusFilter === 'pending' ? 'submitted' : statusFilter,
     })
-    downloadCsv(csv, `NIET_Verification_Requests_${new Date().toISOString().split('T')[0]}.csv`)
+    const prefix = (adminProfile?.institutionCode || 'College').replace(/[^a-zA-Z0-9_-]/g, '_')
+    downloadCsv(csv, `${prefix}_Verification_Requests_${new Date().toISOString().split('T')[0]}.csv`)
     showToast('Verification requests queue exported as CSV.', 'success')
   }
   const [selected, setSelected] = useState<AdminVerificationRequestItem | null>(null)
@@ -568,8 +569,12 @@ export const AdminVerificationRequests: React.FC = () => {
           {paginated.length === 0 ? (
             <div className="text-center py-12 px-4">
               <ClipboardCheck size={28} className="mx-auto text-slate-300 mb-2" />
-              <p className="text-sm font-bold text-slate-800">No Verification Requests Found</p>
-              <p className="text-xs text-slate-500 mt-1">No requests match your search criteria.</p>
+              <p className="text-sm font-bold text-slate-800">
+                {verificationRequests.length === 0 ? 'No verification requests have been received.' : 'No Verification Requests Found'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {verificationRequests.length === 0 ? 'New verification submissions from students will appear here in real-time.' : 'No requests match your search criteria.'}
+              </p>
             </div>
           ) : (
             paginated.map((req) => (

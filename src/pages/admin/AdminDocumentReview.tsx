@@ -317,7 +317,7 @@ const DocDetailModal: React.FC<{
 }
 
 export const AdminDocumentReview: React.FC = () => {
-  const { documents, updateDocumentReview } = useAdmin()
+  const { documents, adminProfile, updateDocumentReview } = useAdmin()
   const [searchParams] = useSearchParams()
   const initialParam = searchParams.get('status')
 
@@ -457,7 +457,11 @@ export const AdminDocumentReview: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {paginated.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-slate-400 text-sm">No documents match the current filters.</td></tr>
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-slate-400 text-sm">
+                    {documents.length === 0 ? 'No student documents have been submitted for review.' : 'No documents match the current filters.'}
+                  </td>
+                </tr>
               ) : (
                 paginated.map((d) => (
                   <tr key={d.id} className="hover:bg-slate-50/60 transition-colors">
@@ -471,7 +475,7 @@ export const AdminDocumentReview: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell text-slate-600 max-w-[120px] truncate">{d.department}</td>
                     <td className="px-4 py-3 hidden lg:table-cell text-slate-600">{d.uploadDate}</td>
-                    <td className="px-4 py-3 hidden lg:table-cell text-slate-600">{d.reviewer ?? 'Dr. S. K. Kulkarni'}</td>
+                    <td className="px-4 py-3 hidden lg:table-cell text-slate-600">{d.reviewer ?? (adminProfile?.name || 'Administrator')}</td>
                     <td className="px-4 py-3"><StatusBadge status={d.reviewStatus} /></td>
                     <td className="px-4 py-3">
                       <button

@@ -5,6 +5,7 @@ import {
   type StudentProfileData,
   type RegisterStudentData,
   type RegisterCollegeData,
+  type RegisterPlatformAdminData,
 } from '@/services/authService'
 
 export interface AuthContextType {
@@ -17,10 +18,31 @@ export interface AuthContextType {
   login: (
     identifier: string,
     password: string,
-    portal?: 'student' | 'college_admin' | 'platform_admin'
+    portal?: 'student' | 'college_admin' | 'platform_admin',
+    securityAnswer?: string
+  ) => Promise<{
+    success: boolean
+    role: string
+    redirectPath: string
+    requireSecurityChallenge?: boolean
+    question?: string
+    challengeToken?: string
+  }>
+  verifySecurityChallenge: (
+    challengeToken: string,
+    securityAnswer: string
   ) => Promise<{ success: boolean; role: string; redirectPath: string }>
   registerStudent: (data: RegisterStudentData) => Promise<{ success: boolean; redirectPath: string }>
   registerCollege: (data: RegisterCollegeData) => Promise<{ success: boolean; redirectPath: string }>
+  registerPlatformAdmin: (
+    data: RegisterPlatformAdminData
+  ) => Promise<{
+    success: boolean
+    activated: boolean
+    message: string
+    pendingApproval?: boolean
+    redirectPath?: string
+  }>
   logout: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<{ success: boolean; message: string; devHint?: string }>
   resetPassword: (email: string, otp: string, pass: string) => Promise<{ success: boolean; message: string }>
@@ -89,26 +111,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (
       identifier: string,
       password: string,
-      portal?: 'student' | 'college_admin' | 'platform_admin'
+      portal?: 'student' | 'college_admin' | 'platform_admin',
+      securityAnswer?: string
     ) => {
-      const res = await authService.login(identifier, password, portal)
-      setUser(res.user)
-      if (res.profile) setProfile(res.profile)
-      setToken(res.token)
-      return {
-        success: true,
-        role: res.user.role,
-        redirectPath: getPortalRedirect(res.user.role),
+      const res = await authService.login(identifier, password, portal, securityAnswer)
+
+      if (res.requireSecurityChallenge) {
+        return {
+          success: true,
+          role: 'platform_admin',
+          redirectPath: '',
+          requireSecurityChallenge: true,
+          question: res.question,
+          challengeToken: res.challengeToken,
+        }
       }
+
+      if (res.user && res.token) {
+        setUser(res.user)
+        if (res.profile) setProfile(res.profile)
+        setToken(res.token)
+        return {
+          success: true,
+          role: res.user.role,
+          redirectPath: getPortalRedirect(res.user.role),
+        }
+      }
+
+      throw new Error(res.error || 'Login verification failed.')
+    },
+    []
+  )
+
+  const verifySecurityChallenge = useCallback(
+    async (challengeToken: string, securityAnswer: string) => {
+      const res = await authService.verifySecurityChallenge(challengeToken, securityAnswer)
+      if (res.user && res.token) {
+        setUser(res.user)
+        setToken(res.token)
+        return {
+          success: true,
+          role: res.user.role,
+          redirectPath: getPortalRedirect(res.user.role),
+        }
+      }
+      throw new Error(res.error || 'Security verification failed.')
     },
     []
   )
 
   const registerStudent = useCallback(async (data: RegisterStudentData) => {
     const res = await authService.registerStudent(data)
-    setUser(res.user)
-    if (res.profile) setProfile(res.profile)
-    setToken(res.token)
+    if (res.user && res.token) {
+      setUser(res.user)
+      if (res.profile) setProfile(res.profile)
+      setToken(res.token)
+    }
     return {
       success: true,
       redirectPath: '/student',
@@ -117,13 +175,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const registerCollege = useCallback(async (data: RegisterCollegeData) => {
     const res = await authService.registerCollege(data)
-    setUser(res.user)
-    setToken(res.token)
+    if (res.user && res.token) {
+      setUser(res.user)
+      setToken(res.token)
+    }
     return {
       success: true,
       redirectPath: '/admin',
     }
   }, [])
+
+  const registerPlatformAdmin = useCallback(
+    async (data: RegisterPlatformAdminData) => {
+      const res = await authService.registerPlatformAdmin(data)
+      if (res.activated && res.user && res.token) {
+        setUser(res.user)
+        setToken(res.token)
+        return {
+          success: true,
+          activated: true,
+          message: res.message,
+          redirectPath: '/platform',
+        }
+      }
+      return {
+        success: true,
+        activated: false,
+        pendingApproval: true,
+        message: res.message,
+      }
+    },
+    []
+  )
 
   const logout = useCallback(async () => {
     await authService.logout()
@@ -148,8 +231,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     isAuthenticated: !!user && !!token,
     login,
+    verifySecurityChallenge,
     registerStudent,
     registerCollege,
+    registerPlatformAdmin,
     logout,
     requestPasswordReset,
     resetPassword,

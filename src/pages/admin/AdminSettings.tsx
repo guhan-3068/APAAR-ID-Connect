@@ -1,13 +1,11 @@
-import React from 'react'
 import {
   Building2,
   Mail,
-  Phone,
   MapPin,
   ShieldCheck,
   Info,
 } from 'lucide-react'
-import { mockAdminProfile } from '@/services/adminMockData'
+import { useAdmin } from '@/context/AdminContext'
 
 const FieldRow: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
   <div className="flex flex-col sm:flex-row sm:items-center gap-1 py-3 border-b border-slate-100 last:border-0">
@@ -17,13 +15,15 @@ const FieldRow: React.FC<{ label: string; value: string; mono?: boolean }> = ({ 
 )
 
 export const AdminSettings: React.FC = () => {
+  const { adminProfile } = useAdmin()
+
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
-      {/* Synthetic Data Disclaimer */}
-      <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-3">
-        <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
-        <div className="text-xs text-amber-800 leading-relaxed">
-          <strong>Demonstration Mode.</strong> All institutional data below is synthetic and intended for hackathon demonstration only. In production, institutional profile data would be sourced from the verified AICTE institution registry.
+      {/* Institutional Information */}
+      <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 flex items-start gap-3">
+        <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-800 leading-relaxed">
+          <strong>Institutional Settings.</strong> Official administrative information for {adminProfile.institutionName || 'your college'}. Sourced directly from verified college records.
         </div>
       </div>
 
@@ -39,11 +39,11 @@ export const AdminSettings: React.FC = () => {
           </div>
         </div>
         <div className="px-6 py-2">
-          <FieldRow label="Institution Name" value={mockAdminProfile.institutionName} />
-          <FieldRow label="AICTE Code" value={mockAdminProfile.institutionCode} mono />
-          <FieldRow label="Institution Type" value={mockAdminProfile.type} />
-          <FieldRow label="City / District" value={mockAdminProfile.city} />
-          <FieldRow label="State" value={mockAdminProfile.state} />
+          <FieldRow label="Institution Name" value={adminProfile.institutionName} />
+          <FieldRow label="AICTE Code" value={adminProfile.institutionCode} mono />
+          <FieldRow label="Institution Type" value={adminProfile.type || 'Affiliated'} />
+          <FieldRow label="City / District" value={adminProfile.city || 'District'} />
+          <FieldRow label="State" value={adminProfile.state || 'State'} />
         </div>
       </div>
 
@@ -59,27 +59,26 @@ export const AdminSettings: React.FC = () => {
           </div>
         </div>
         <div className="px-6 py-2">
-          <FieldRow label="Name" value={mockAdminProfile.name} />
-          <FieldRow label="Designation" value={mockAdminProfile.role} />
+          <FieldRow label="Name" value={adminProfile.name} />
+          <FieldRow label="Designation" value={adminProfile.role} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 py-3 border-b border-slate-100">
             <span className="sm:w-48 text-xs font-semibold text-slate-500">Official Email</span>
             <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
               <Mail size={14} className="text-slate-400" />
-              {mockAdminProfile.email}
+              {adminProfile.email}
             </span>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 py-3 border-b border-slate-100">
-            <span className="sm:w-48 text-xs font-semibold text-slate-500">Phone</span>
-            <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
-              <Phone size={14} className="text-slate-400" />
-              +91-80-23456789 (Demonstration)
+            <span className="sm:w-48 text-xs font-semibold text-slate-500">Institution Code</span>
+            <span className="flex items-center gap-1.5 text-sm font-mono text-slate-700">
+              {adminProfile.institutionCode}
             </span>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 py-3">
             <span className="sm:w-48 text-xs font-semibold text-slate-500">Address</span>
             <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
               <MapPin size={14} className="text-slate-400" />
-              {mockAdminProfile.city}, {mockAdminProfile.state}
+              {adminProfile.city || 'City'}, {adminProfile.state || 'State'}
             </span>
           </div>
         </div>

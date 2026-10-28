@@ -33,19 +33,31 @@ export const PlatformQuality: React.FC = () => {
   // ----------------------------------------------------
   // Section A: Rule-Based Quality Scorer State
   // ----------------------------------------------------
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(mockAdminStudents[0].id)
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(mockAdminStudents[0]?.id || '')
   const [studentSearch, setStudentSearch] = useState('')
 
   const selectedStudent = useMemo(() => {
-    return mockAdminStudents.find((s) => s.id === selectedStudentId) || mockAdminStudents[0]
+    return mockAdminStudents.find((s) => s.id === selectedStudentId) || mockAdminStudents[0] || null
   }, [selectedStudentId])
 
   const scoringBreakdown = useMemo<QualityScoringBreakdown>(() => {
+    if (!selectedStudent) {
+      return {
+        overallScore: 0,
+        grade: 'A',
+        dimensionScores: [],
+        flags: [],
+        recommendations: [],
+      } as any
+    }
     return calculateStudentQualityScore(selectedStudent, mockAdminAcademicRecords)
   }, [selectedStudent])
 
   // Aggregate statistics across student cohort
   const cohortStats = useMemo(() => {
+    if (mockAdminStudents.length === 0) {
+      return { avgScore: 0, highQualityCount: 0, needsAttentionCount: 0, totalEvaluated: 0 }
+    }
     const scores = mockAdminStudents.map((s) => calculateStudentQualityScore(s, mockAdminAcademicRecords).overallScore)
     const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
     const highQualityCount = scores.filter((s) => s >= 85).length
@@ -100,12 +112,12 @@ export const PlatformQuality: React.FC = () => {
   // Section C: OCR Document Studio State
   // ----------------------------------------------------
   const [ocrRecords, setOcrRecords] = useState<OcrExtractionRecord[]>(mockOcrSamples)
-  const [selectedOcrId, setSelectedOcrId] = useState<string>(mockOcrSamples[1].id) // Default to sample with discrepancy
+  const [selectedOcrId, setSelectedOcrId] = useState<string>(mockOcrSamples[1]?.id || mockOcrSamples[0]?.id || '')
   const [humanConfirmCheck, setHumanConfirmCheck] = useState(false)
   const [ocrSuccessToast, setOcrSuccessToast] = useState<string | null>(null)
 
   const activeOcrRecord = useMemo(() => {
-    return ocrRecords.find((r) => r.id === selectedOcrId) || ocrRecords[0]
+    return ocrRecords.find((r) => r.id === selectedOcrId) || ocrRecords[0] || null
   }, [ocrRecords, selectedOcrId])
 
   const handleFieldEdit = (index: number, newValue: string) => {

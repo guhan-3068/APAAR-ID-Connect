@@ -27,87 +27,9 @@ type PlatformNotif = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STATIC PLATFORM NOTIFICATIONS (infrastructure / regulatory events)
+// PLATFORM NOTIFICATIONS (DATABASE / EVENT DRIVEN)
 // ─────────────────────────────────────────────────────────────────────────────
-const initialPlatformNotifs: PlatformNotif[] = [
-  {
-    id: 'PN-001',
-    title: 'Institution Suspended: ERIT (West Bengal)',
-    message:
-      'Eastern Regional Institute of Technology (AICTE-1-2389012) has been suspended due to repeated ABC credit ledger non-compliance. Manual review required before reinstatement.',
-    date: '23 Oct 2026',
-    type: 'critical',
-    read: false,
-    actionUrl: '/platform/institutions',
-  },
-  {
-    id: 'PN-002',
-    title: 'Security Alert: High-Volume Query Pattern Detected',
-    message:
-      'Rate-limiting triggered on an external employer lookup IP subnet (91.203.xxx.xxx). Automated mitigation applied. Monitoring continues.',
-    date: '23 Oct 2026',
-    type: 'critical',
-    read: false,
-    actionUrl: '/platform/audit',
-  },
-  {
-    id: 'PN-003',
-    title: 'UIDAI Gateway Latency Spike',
-    message:
-      'UIDAI Aadhaar Demographic Verification Node is degraded (latency 890ms vs. baseline 185ms). Gateway failover is active. Monitoring continued.',
-    date: '23 Oct 2026',
-    type: 'warning',
-    read: false,
-    actionUrl: '/platform/monitoring',
-  },
-  {
-    id: 'PN-004',
-    title: 'New Institution Onboarding Request: Gujarat Apex Institute',
-    message:
-      'Gujarat Apex Institute of Engineering (AICTE-1-1192834) submitted onboarding documents for review. Pending approval.',
-    date: '22 Oct 2026',
-    type: 'info',
-    read: false,
-    actionUrl: '/platform/institutions',
-  },
-  {
-    id: 'PN-005',
-    title: 'National Batch Verification Completed',
-    message:
-      'Scheduled 24h DigiLocker hash verification cycle for NIET Bengaluru (4,250 students) completed with 99.2% match accuracy.',
-    date: '22 Oct 2026',
-    type: 'success',
-    read: true,
-  },
-  {
-    id: 'PN-006',
-    title: 'Compliance Threshold Policy Updated',
-    message:
-      'Minimum institutional APAAR coverage threshold updated to 85% for Autonomous college AICTE grant eligibility. Change takes effect from next reporting cycle.',
-    date: '22 Oct 2026',
-    type: 'info',
-    read: true,
-  },
-  {
-    id: 'PN-007',
-    title: 'Tamil Nadu College of Advanced Technology — Under Review',
-    message:
-      'TNCAT (AICTE-1-9081234) compliance score dropped to 78%. Placed under review. Registrar notified. 30-day remediation window started.',
-    date: '21 Oct 2026',
-    type: 'warning',
-    read: true,
-    actionUrl: '/platform/institutions',
-  },
-  {
-    id: 'PN-008',
-    title: 'Kerala Technological Science Academy — 98% Compliance',
-    message:
-      'KTSA achieved 98% APAAR verification compliance — highest among all registered institutions. No outstanding data quality issues.',
-    date: '20 Oct 2026',
-    type: 'success',
-    read: true,
-  },
-]
+const initialPlatformNotifs: PlatformNotif[] = []
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPE CONFIGURATION
@@ -278,8 +200,12 @@ export const PlatformNotifications: React.FC = () => {
         {filtered.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
             <Bell size={32} className="mx-auto text-slate-300 mb-2" />
-            <p className="text-sm font-semibold text-slate-700">No notifications match your filters</p>
-            <p className="text-xs text-slate-400 mt-1">Try clearing the filter or showing all types.</p>
+            <p className="text-sm font-semibold text-slate-700">
+              {notifications.length === 0 ? 'You have no notifications yet.' : 'No notifications match your filters'}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              {notifications.length === 0 ? 'Platform audit and administrative notifications will appear here.' : 'Try clearing the filter or showing all types.'}
+            </p>
           </div>
         ) : (
           filtered.map((n) => {

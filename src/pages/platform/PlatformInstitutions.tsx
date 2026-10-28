@@ -283,11 +283,24 @@ export const PlatformInstitutions: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredInstitutions.map((inst) => {
-                const badge = submissionStatusBadges[inst.submissionStatus]
-                const isIntakeExceeded = inst.totalReportedEnrolment > inst.totalApprovedIntake
-                return (
-                  <tr key={inst.id} className="hover:bg-slate-50/80 transition-colors">
+              {filteredInstitutions.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-12 px-4 text-center">
+                    <Building2 size={32} className="mx-auto text-slate-300 mb-2" />
+                    <p className="text-sm font-bold text-slate-800">
+                      {aicteInstitutions.length === 0 ? 'No colleges have been registered yet.' : 'No Colleges Found'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {aicteInstitutions.length === 0 ? 'Colleges registered through the platform will appear here.' : 'No institutions match your search and filter criteria.'}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filteredInstitutions.map((inst) => {
+                  const badge = submissionStatusBadges[inst.submissionStatus]
+                  const isIntakeExceeded = inst.totalReportedEnrolment > inst.totalApprovedIntake
+                  return (
+                    <tr key={inst.id} className="hover:bg-slate-50/80 transition-colors">
                     {/* Name & Code */}
                     <td className="py-3.5 px-4 max-w-[240px]">
                       <span className="font-bold text-slate-900 block truncate" title={inst.name}>
@@ -358,7 +371,7 @@ export const PlatformInstitutions: React.FC = () => {
                     </td>
                   </tr>
                 )
-              })}
+              }))}
             </tbody>
           </table>
         </div>

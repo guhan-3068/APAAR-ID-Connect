@@ -107,6 +107,14 @@ export const studentApi = {
   async markAllNotificationsRead(): Promise<void> {
     await request('/api/student/notifications/read-all', { method: 'PUT' })
   },
+
+  async updateProfile(updates: Partial<StudentProfileData>): Promise<StudentProfileData> {
+    const res = await request<{ success: boolean; student: StudentProfileData }>('/api/student/profile', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+    return res.student
+  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +132,7 @@ export interface CollegeDashboardResponse {
     type: string
     status: string
     contactEmail: string
+    departments?: string[]
   }
   students: AdminStudentRecord[]
   academicRecords: AdminAcademicRecord[]
@@ -174,16 +183,29 @@ export const collegeApi = {
     return request<CollegeDashboardResponse>('/api/college/dashboard', { method: 'GET' })
   },
 
-  async searchStudents(query: string): Promise<StudentSearchResult[]> {
+  async searchStudents(query: string, searchType: 'all' | 'registrationNumber' | 'apaarId' = 'all'): Promise<StudentSearchResult[]> {
+    const params = new URLSearchParams()
+    if (query) params.append('q', query)
+    if (searchType && searchType !== 'all') params.append('searchType', searchType)
     const res = await request<{ success: boolean; students: StudentSearchResult[] }>(
-      `/api/college/students/search?q=${encodeURIComponent(query)}`,
+      `/api/college/students/search?${params.toString()}`,
       { method: 'GET' }
     )
     return res.students
   },
 
+  async updateDepartments(departments: string[]): Promise<string[]> {
+    const res = await request<{ success: boolean; departments: string[] }>('/api/college/departments', {
+      method: 'PUT',
+      body: JSON.stringify({ departments }),
+    })
+    return res.departments
+  },
+
   async uploadDocument(data: {
-    studentRegistrationNumber: string
+    studentRegistrationNumber?: string
+    studentId?: string
+    apaarId?: string
     documentType: string
     title: string
     fileName: string

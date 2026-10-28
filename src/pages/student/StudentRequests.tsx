@@ -5,7 +5,6 @@ import {
   CheckCircle2, 
   Eye, 
   X, 
-  Info, 
   Download, 
   Clock, 
   AlertCircle, 
@@ -38,6 +37,7 @@ interface VerificationDemoItem {
 export const StudentRequests: React.FC = () => {
   const {
     profile,
+    documents,
     verificationRequests: requests,
     addVerificationRequest,
     consentRequests,
@@ -66,84 +66,6 @@ export const StudentRequests: React.FC = () => {
 
   // DPDP Consent State
   const [consentToast, setConsentToast] = useState<string | null>(null)
-
-  // The 5+ Example Documents requested in the prompt specification
-  const verificationDocumentsList: VerificationDemoItem[] = [
-    {
-      id: 'VD-1',
-      documentName: '10th Marksheet',
-      classification: 'Secondary School Examination',
-      status: 'Verified',
-      issuedBy: 'Central Board of Secondary Education (CBSE)',
-      submissionDate: '15 Aug 2021',
-      fileName: '10th_marksheet_cbse.pdf',
-      fileSize: '1.2 MB',
-      verificationHash: 'sha256:a3f4e1d8c9b26e0f7a4d2c1e8b5f3a9d7c4e1b8f2a5d3c0e7b4f1a8d5c2e9b6',
-    },
-    {
-      id: 'VD-2',
-      documentName: '12th Marksheet',
-      classification: 'Higher Secondary Examination',
-      status: 'Verified',
-      issuedBy: 'Central Board of Secondary Education (CBSE)',
-      submissionDate: '15 Aug 2021',
-      fileName: '12th_marksheet_cbse.pdf',
-      fileSize: '1.4 MB',
-      verificationHash: 'sha256:b7c3a2e1d0f8b4c6e9a1d5f2c8b0e4a7d3f1c5a9b2e6d0f4c1a8e5b9d2f6c0a4',
-    },
-    {
-      id: 'VD-3',
-      documentName: 'Transfer Certificate (TC)',
-      classification: 'Institutional Transfer Certificate',
-      status: 'Pending Verification',
-      issuedBy: 'College Registrar Office',
-      submissionDate: '10 Oct 2024',
-      fileName: 'transfer_certificate.pdf',
-      fileSize: '0.8 MB',
-    },
-    {
-      id: 'VD-4',
-      documentName: 'Semester 1 Marksheet',
-      classification: 'B.Tech University Examination',
-      status: 'Verified',
-      issuedBy: 'Dr. A.P.J. Abdul Kalam Technical University (AKTU)',
-      submissionDate: '20 Jan 2022',
-      fileName: 'sem1_marksheet_2021.pdf',
-      fileSize: '2.1 MB',
-      verificationHash: 'sha256:c9d4f2b1a7e5c3d0f8b6a4e2c0d7f5b3a1e9c7d5f3b1a9e7c5d3f1b9a7e5c3d1',
-    },
-    {
-      id: 'VD-5',
-      documentName: 'Semester 2 Marksheet',
-      classification: 'B.Tech University Examination',
-      status: 'Pending Verification',
-      issuedBy: 'Dr. A.P.J. Abdul Kalam Technical University (AKTU)',
-      submissionDate: '14 Jul 2022',
-      fileName: 'sem2_marksheet_2022.pdf',
-      fileSize: '2.0 MB',
-    },
-    {
-      id: 'VD-6',
-      documentName: 'Semester 3 Marksheet',
-      classification: 'B.Tech University Examination',
-      status: 'Verified',
-      issuedBy: 'Dr. A.P.J. Abdul Kalam Technical University (AKTU)',
-      submissionDate: '25 Jan 2023',
-      fileName: 'sem3_marksheet_2022.pdf',
-      fileSize: '2.3 MB',
-      verificationHash: 'sha256:e4b7d2c9a1f3e5b8d0c2a4f6b9e1d3c5a7f9b2e4d6c8a0f2b5e7d9c1a3f5b8e0d2',
-    },
-    {
-      id: 'VD-7',
-      documentName: 'Community Certificate',
-      classification: 'Government Competent Authority Certificate',
-      status: 'Correction Required',
-      issuedBy: 'Revenue Department / Tehsildar',
-      submissionDate: '18 Aug 2021',
-      fileName: 'community_certificate.pdf',
-      fileSize: '1.1 MB',
-    },
-  ]
 
   const handleCreateRequest = (e: React.FormEvent) => {
     e.preventDefault()
@@ -216,18 +138,6 @@ SEALED DIGITALLY UNDER AICTE NATIONAL ACADEMIC DEPOSITORY PROTOCOLS
 
   return (
     <div className="space-y-6">
-      {/* Synthetic Demonstration Disclaimer */}
-      <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200/80 flex items-center justify-between text-xs text-purple-900">
-        <div className="flex items-center gap-2">
-          <Info size={16} className="text-purple-600 shrink-0" />
-          <span>
-            <strong>Official Verification Requests & Tracking:</strong> Demonstrating active verification workflows, document scrutiny statuses, and DPDP controlled consent.
-          </span>
-        </div>
-        <Badge status="info" variant="subtle" className="text-[10px]">
-          AICTE & DigiLocker Engine
-        </Badge>
-      </div>
 
       {consentToast && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-900 flex items-center gap-2 animate-in fade-in">
@@ -330,56 +240,75 @@ SEALED DIGITALLY UNDER AICTE NATIONAL ACADEMIC DEPOSITORY PROTOCOLS
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {verificationDocumentsList.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
-                      {/* 1. Document Name & Classification */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
-                            item.status === 'Verified' 
-                              ? 'bg-emerald-50 text-emerald-600' 
-                              : item.status === 'Correction Required'
-                              ? 'bg-rose-50 text-rose-600'
-                              : 'bg-amber-50 text-amber-600'
-                          }`}>
-                            <FileText size={18} />
-                          </div>
-                          <div>
-                            <span className="font-bold text-sm text-slate-900 block">
-                              {item.documentName}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
-                              {item.classification} • Issued by {item.issuedBy}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
+                  {documents.length > 0 ? (
+                    documents.map((item) => {
+                      const itemStatus = item.status === 'verified' ? 'Verified' : item.status === 'requires_review' ? 'Correction Required' : 'Pending Verification'
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                itemStatus === 'Verified' 
+                                  ? 'bg-emerald-50 text-emerald-600' 
+                                  : itemStatus === 'Correction Required'
+                                  ? 'bg-rose-50 text-rose-600'
+                                  : 'bg-amber-50 text-amber-600'
+                              }`}>
+                                <FileText size={18} />
+                              </div>
+                              <div>
+                                <span className="font-bold text-sm text-slate-900 block">
+                                  {item.title}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {item.type} • {item.fileName}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
 
-                      {/* 2. Verification Status */}
-                      <td className="py-3.5 px-4">
-                        {getVerificationStatusBadge(item.status)}
-                      </td>
+                          <td className="py-3.5 px-4">
+                            {getVerificationStatusBadge(itemStatus)}
+                          </td>
 
-                      {/* 3. Action: View Document */}
-                      <td className="py-3.5 px-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          leftIcon={<Eye size={14} />}
-                          onClick={() => setViewingDoc(item)}
-                          className="py-1 px-3 text-blue-600 hover:bg-blue-50 font-semibold"
-                        >
-                          View Document
-                        </Button>
+                          <td className="py-3.5 px-4 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              leftIcon={<Eye size={14} />}
+                              onClick={() => setViewingDoc({
+                                id: item.id,
+                                documentName: item.title,
+                                classification: item.type,
+                                status: itemStatus,
+                                issuedBy: profile.institutionName || 'College Administration',
+                                submissionDate: item.uploadDate,
+                                fileName: item.fileName,
+                                fileSize: item.fileSize,
+                                verificationHash: item.hashDigest,
+                              })}
+                              className="py-1 px-3 text-blue-600 hover:bg-blue-50 font-semibold"
+                            >
+                              View Document
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="py-12 text-center text-slate-400 text-xs">
+                        <FileText className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                        No documents have been uploaded for your account yet.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
 
             <div className="pt-4 flex items-center justify-between text-xs text-slate-400 border-t border-slate-100 mt-4">
-              <span>Showing {verificationDocumentsList.length} prescribed documents for academic verification</span>
+              <span>Showing {documents.length} official document{documents.length === 1 ? '' : 's'} registered in your account</span>
               <span className="font-medium text-slate-600">DigiLocker National Academic Depository Verified</span>
             </div>
           </Card>
@@ -416,34 +345,43 @@ SEALED DIGITALLY UNDER AICTE NATIONAL ACADEMIC DEPOSITORY PROTOCOLS
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {requests.map((req) => (
-                    <tr key={req.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-blue-600">{req.referenceNo}</td>
-                      <td className="py-3 px-4 font-medium text-slate-900">{req.recordTitle}</td>
-                      <td className="py-3 px-4 text-slate-600 max-w-[200px] truncate" title={req.purpose}>
-                        {req.purpose}
-                      </td>
-                      <td className="py-3 px-4 text-slate-500">{req.submissionDate}</td>
-                      <td className="py-3 px-4">
-                        <Badge
-                          status={req.status === 'verified' ? 'verified' : req.status === 'under_review' ? 'pending' : 'default'}
-                          dot
-                        >
-                          {req.status === 'under_review' ? 'Under Review' : req.status.toUpperCase()}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          leftIcon={<Eye size={14} />}
-                          onClick={() => setSelectedRequest(req)}
-                        >
-                          Audit Lifecycle
-                        </Button>
+                  {requests.length > 0 ? (
+                    requests.map((req) => (
+                      <tr key={req.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-blue-600">{req.referenceNo}</td>
+                        <td className="py-3 px-4 font-medium text-slate-900">{req.recordTitle}</td>
+                        <td className="py-3 px-4 text-slate-600 max-w-[200px] truncate" title={req.purpose}>
+                          {req.purpose}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">{req.submissionDate}</td>
+                        <td className="py-3 px-4">
+                          <Badge
+                            status={req.status === 'verified' ? 'verified' : req.status === 'under_review' ? 'pending' : 'default'}
+                            dot
+                          >
+                            {req.status === 'under_review' ? 'Under Review' : req.status.toUpperCase()}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            leftIcon={<Eye size={14} />}
+                            onClick={() => setSelectedRequest(req)}
+                          >
+                            Audit Lifecycle
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                        <FileCheck2 className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                        No verification requests have been submitted yet.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>

@@ -16,13 +16,26 @@ export interface CollegeRecord {
   status: 'active' | 'approved' | 'pending_approval' | 'suspended'
   contactEmail: string
   adminUserId?: string
+  departments?: string[]
   createdAt: string
+}
+
+export interface AdminInvitationRecord {
+  id: string
+  code: string
+  createdByAdminId: string
+  createdDate: string
+  expiresAt: string
+  used: boolean
+  usedByEmail?: string
+  usedAt?: string
 }
 
 export interface UserRecord {
   id: string
   fullName: string
   email: string
+  username?: string
   role: 'student' | 'college_admin' | 'platform_admin'
   passwordHash: string // salt:hash (pbkdf2)
   createdAt: string
@@ -31,6 +44,15 @@ export interface UserRecord {
   institutionCode?: string
   collegeId?: string
   status?: 'active' | 'approved' | 'pending_approval' | 'suspended'
+  securityQuestion?: string
+  securityAnswerHash?: string // salt:hash (pbkdf2)
+  failedLoginAttempts?: number
+  lockoutUntil?: number
+  employeeId?: string
+  designation?: string
+  invitationCodeUsed?: string
+  approvedAt?: string
+  approvedByAdminId?: string
   resetOtp?: {
     code: string
     expiresAt: number
@@ -51,6 +73,8 @@ export interface StudentRecord {
   department: string
   course: string
   yearOfStudy: string
+  academicYear?: string
+  admissionYear?: string
   semester: string
   phone: string
   dob: string
@@ -157,6 +181,15 @@ export interface AuditLogRecord {
   timestamp: string
 }
 
+export interface CollegeAnnouncementRecord {
+  id: string
+  collegeId: string
+  title: string
+  message: string
+  publishedByAdminId: string
+  publishedDate: string
+}
+
 export interface DatabaseSchema {
   colleges: CollegeRecord[]
   users: UserRecord[]
@@ -165,7 +198,9 @@ export interface DatabaseSchema {
   documents: DocumentRecord[]
   verificationRequests: VerificationRequestRecord[]
   notifications: NotificationRecord[]
+  announcements?: CollegeAnnouncementRecord[]
   auditLogs: AuditLogRecord[]
+  invitationCodes?: AdminInvitationRecord[]
   // Legacy compatibility
   studentProfiles?: any[]
 }
@@ -176,6 +211,25 @@ export interface DatabaseSchema {
 
 const DATA_DIR = path.resolve(process.cwd(), 'server/data')
 const DB_FILE = path.join(DATA_DIR, 'auth_database.json')
+
+export function resolveDbFilePath(): string {
+  const tmpDbFile = path.join('/tmp', 'auth_database.json')
+  if (fs.existsSync(tmpDbFile)) return tmpDbFile
+
+  const candidates = [
+    DB_FILE,
+    path.resolve(process.cwd(), 'IMPORTANT SIH/APAAR ID (1)/APAAR ID/server/data/auth_database.json'),
+  ]
+  try {
+    const metaDir = (import.meta as any).dirname || path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'))
+    candidates.push(path.join(metaDir, 'data', 'auth_database.json'))
+  } catch {}
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c
+  }
+  return DB_FILE
+}
 
 let dbCache: DatabaseSchema | null = null
 
@@ -197,9 +251,188 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SECURITY QUESTION NORMALIZATION & HASHING (PBKDF2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function normalizeSecurityAnswer(answer: string): string {
+  return (answer || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]/g, '')
+}
+
+export function hashSecurityAnswer(answer: string, customSalt?: string): string {
+  const norm = normalizeSecurityAnswer(answer)
+  const salt = customSalt || crypto.randomBytes(16).toString('hex')
+  const hash = crypto.pbkdf2Sync(norm, salt, 100000, 64, 'sha512').toString('hex')
+  return `${salt}:${hash}`
+}
+
+export function verifySecurityAnswer(providedAnswer: string, storedHashString?: string): boolean {
+  try {
+    if (!providedAnswer || !storedHashString) return false
+    const [salt, expectedHash] = storedHashString.split(':')
+    if (!salt || !expectedHash) return false
+    const norm = normalizeSecurityAnswer(providedAnswer)
+    const computedHash = crypto.pbkdf2Sync(norm, salt, 100000, 64, 'sha512').toString('hex')
+    return crypto.timingSafeEqual(Buffer.from(computedHash, 'hex'), Buffer.from(expectedHash, 'hex'))
+  } catch {
+    return false
+  }
+}
+
 // Generates a mock SHA256 checksum digest
 export function generateChecksum(content: string): string {
   return 'SHA256:' + crypto.createHash('sha256').update(content).digest('hex').slice(0, 32)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLLEGE-SPECIFIC DEPARTMENT CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const DEFAULT_COLLEGE_DEPARTMENTS: Record<string, string[]> = {
+  // VELALAR COLLEGE OF ENGINEERING AND TECHNOLOGY
+  'col_1793115697005': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biomedical Engineering',
+    'Medical Electronics',
+  ],
+  'col_1793120711999': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biomedical Engineering',
+    'Medical Electronics',
+  ],
+  'AICTE -2026': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biomedical Engineering',
+    'Medical Electronics',
+  ],
+  'AICTE-2026': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biomedical Engineering',
+    'Medical Electronics',
+  ],
+  'AICTE-3456': [
+    'Computer Science and Engineering',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Biomedical Engineering',
+    'Mechanical Engineering',
+    'Mechatronics Engineering',
+    'Civil Engineering',
+  ],
+  'AICTE -2027': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biomedical Engineering',
+    'Medical Electronics',
+  ],
+  // NATIONAL INSTITUTE OF ENGINEERING & TECHNOLOGY (NIET)
+  'col_niet_01': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence & Machine Learning',
+    'Electronics and Communication Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biotechnology',
+  ],
+  'NIET-2006-AICTE': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Artificial Intelligence & Machine Learning',
+    'Electronics and Communication Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Biotechnology',
+  ],
+  // COIMBATORE INSTITUTE OF TECHNOLOGY (CIT)
+  'col_cit_02': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Chemical Engineering',
+    'Civil Engineering',
+  ],
+  'CIT-1956-AICTE': [
+    'Computer Science and Engineering',
+    'Information Technology',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Chemical Engineering',
+    'Civil Engineering',
+  ],
+  // R. V. COLLEGE OF ENGINEERING (RVCE)
+  'col_rvce_03': [
+    'Computer Science and Engineering',
+    'Information Science and Engineering',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Aerospace Engineering',
+    'Biotechnology',
+  ],
+  '1-4270909': [
+    'Computer Science and Engineering',
+    'Information Science and Engineering',
+    'Electronics and Communication Engineering',
+    'Electrical and Electronics Engineering',
+    'Mechanical Engineering',
+    'Aerospace Engineering',
+    'Biotechnology',
+  ],
+  // KPR INSTITUTE OF ENGINEERING AND TECHNOLOGY
+  'col_1793096977650': [
+    'Computer Science and Engineering',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Biomedical Engineering',
+    'Mechanical Engineering',
+    'Mechatronics Engineering',
+    'Civil Engineering',
+  ],
+  'AICTE - 3456': [
+    'Computer Science and Engineering',
+    'Artificial Intelligence and Data Science',
+    'Electronics and Communication Engineering',
+    'Biomedical Engineering',
+    'Mechanical Engineering',
+    'Mechatronics Engineering',
+    'Civil Engineering',
+  ],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,581 +441,330 @@ export function generateChecksum(content: string): string {
 
 function createInitialSeed(): DatabaseSchema {
   const defaultPasswordHash = hashPassword('Apaar@2026')
+  const defaultSecuritySalt = 'c1a8d052b947e3f1'
+  const defaultSecurityAnswerHash = hashSecurityAnswer('Kendriya Vidyalaya', defaultSecuritySalt)
 
-  // Colleges
-  const colleges: CollegeRecord[] = [
-    {
-      id: 'col_niet_01',
-      code: 'NIET-2006-AICTE',
-      name: 'National Institute of Engineering & Technology',
-      state: 'Uttar Pradesh',
-      district: 'Gautam Buddha Nagar',
-      type: 'Autonomous Technical Campus',
-      status: 'approved',
-      contactEmail: 'registrar@niet.edu.in',
-      adminUserId: 'usr_college_admin_01',
-      createdAt: '2026-01-15T09:00:00.000Z',
-    },
-    {
-      id: 'col_cit_02',
-      code: 'CIT-1956-AICTE',
-      name: 'Coimbatore Institute of Technology',
-      state: 'Tamil Nadu',
-      district: 'Coimbatore',
-      type: 'Government-Aided Autonomous Institution',
-      status: 'approved',
-      contactEmail: 'registrar@cit.edu.in',
-      adminUserId: 'usr_college_admin_02',
-      createdAt: '2026-01-15T09:00:00.000Z',
-    },
-    {
-      id: 'col_rvce_03',
-      code: '1-4270909',
-      name: 'R. V. College of Engineering',
-      state: 'Karnataka',
-      district: 'Bengaluru Urban',
-      type: 'Private Autonomous Engineering College',
-      status: 'approved',
-      contactEmail: 'registrar@rvce.edu.in',
-      adminUserId: 'usr_col_1792905896285',
-      createdAt: '2026-02-10T10:00:00.000Z',
-    },
-  ]
-
-  // Users
+  // Bootstrap Platform Administrator (Root Administrative Access)
   const users: UserRecord[] = [
     {
       id: 'usr_platform_admin_01',
-      fullName: 'Dr. Anil Sahasrabudhe (Central Administration)',
       email: 'admin@aicte.gov.in',
-      role: 'platform_admin',
+      username: 'aicte_central_admin',
       passwordHash: defaultPasswordHash,
+      fullName: 'Dr. Anil Sahasrabudhe (Central Administration)',
+      role: 'platform_admin',
       status: 'active',
+      employeeId: 'AICTE-HQ-001',
+      designation: 'Central Platform Administrator',
+      securityQuestion: 'What was the name of your first school?',
+      securityAnswerHash: defaultSecurityAnswerHash,
+      failedLoginAttempts: 0,
+      lockoutUntil: 0,
       createdAt: '2026-01-01T00:00:00.000Z',
     },
-    {
-      id: 'usr_college_admin_01',
-      fullName: 'Dr. S. K. Kulkarni',
-      email: 'registrar@niet.edu.in',
-      role: 'college_admin',
-      collegeId: 'col_niet_01',
-      institutionName: 'National Institute of Engineering & Technology',
-      institutionCode: 'NIET-2006-AICTE',
-      passwordHash: defaultPasswordHash,
-      status: 'approved',
-      createdAt: '2026-01-15T09:00:00.000Z',
-    },
-    {
-      id: 'usr_college_admin_02',
-      fullName: 'Dr. V. Radhakrishnan',
-      email: 'registrar@cit.edu.in',
-      role: 'college_admin',
-      collegeId: 'col_cit_02',
-      institutionName: 'Coimbatore Institute of Technology',
-      institutionCode: 'CIT-1956-AICTE',
-      passwordHash: defaultPasswordHash,
-      status: 'approved',
-      createdAt: '2026-01-15T09:00:00.000Z',
-    },
-    {
-      id: 'usr_student_01',
-      fullName: 'Aarav Sharma',
-      email: 'aarav.sharma@student.niet.edu.in',
-      apaarId: '210420241234',
-      role: 'student',
-      collegeId: 'col_niet_01',
-      institutionName: 'National Institute of Engineering & Technology',
-      institutionCode: 'NIET-2006-AICTE',
-      passwordHash: defaultPasswordHash,
-      status: 'active',
-      createdAt: '2026-01-20T10:00:00.000Z',
-    },
-    {
-      id: 'usr_student_02',
-      fullName: 'Riya Sen',
-      email: 'riya.sen@student.niet.edu.in',
-      apaarId: '210420241235',
-      role: 'student',
-      collegeId: 'col_niet_01',
-      institutionName: 'National Institute of Engineering & Technology',
-      institutionCode: 'NIET-2006-AICTE',
-      passwordHash: defaultPasswordHash,
-      status: 'active',
-      createdAt: '2026-01-20T11:00:00.000Z',
-    },
-    {
-      id: 'usr_student_03',
-      fullName: 'Pooja Hegde',
-      email: 'pooja.hegde@student.cit.edu.in',
-      apaarId: '989443768456',
-      role: 'student',
-      collegeId: 'col_cit_02',
-      institutionName: 'Coimbatore Institute of Technology',
-      institutionCode: 'CIT-1956-AICTE',
-      passwordHash: defaultPasswordHash,
-      status: 'active',
-      createdAt: '2026-01-21T09:00:00.000Z',
-    },
-    {
-      id: 'usr_student_04',
-      fullName: 'Rohan Varma',
-      email: 'rohan.varma@student.cit.edu.in',
-      apaarId: '989443768457',
-      role: 'student',
-      collegeId: 'col_cit_02',
-      institutionName: 'Coimbatore Institute of Technology',
-      institutionCode: 'CIT-1956-AICTE',
-      passwordHash: defaultPasswordHash,
-      status: 'active',
-      createdAt: '2026-01-21T10:00:00.000Z',
-    },
   ]
 
-  // Students Table
-  const students: StudentRecord[] = [
+  const invitationCodes: AdminInvitationRecord[] = [
     {
-      id: 'stu_niet_001',
-      userId: 'usr_student_01',
-      collegeId: 'col_niet_01',
-      institutionName: 'National Institute of Engineering & Technology',
-      institutionCode: 'NIET-2006-AICTE',
-      fullName: 'Aarav Sharma',
-      email: 'aarav.sharma@student.niet.edu.in',
-      apaarId: '210420241234',
-      registrationNumber: '2021NIET0841',
-      admissionNumber: 'ADM20210841',
-      department: 'Computer Science & Engineering',
-      course: 'B.Tech — Computer Science & Engineering',
-      yearOfStudy: '4th Year (Final Year)',
-      semester: 'Semester 7',
-      phone: '+91 98765 43210',
-      dob: '15 Aug 2003',
-      gender: 'Male',
-      bloodGroup: 'B+',
-      digilockerConnected: true,
-      verificationStatus: 'verified',
-      createdAt: '2026-01-20T10:00:00.000Z',
-      lastSync: '27/10/2026, 10:45:00 AM',
-    },
-    {
-      id: 'stu_niet_002',
-      userId: 'usr_student_02',
-      collegeId: 'col_niet_01',
-      institutionName: 'National Institute of Engineering & Technology',
-      institutionCode: 'NIET-2006-AICTE',
-      fullName: 'Riya Sen',
-      email: 'riya.sen@student.niet.edu.in',
-      apaarId: '210420241235',
-      registrationNumber: '2021NIET0842',
-      admissionNumber: 'ADM20210842',
-      department: 'Information Technology',
-      course: 'B.Tech — Information Technology',
-      yearOfStudy: '4th Year',
-      semester: 'Semester 7',
-      phone: '+91 98765 43211',
-      dob: '22 Nov 2003',
-      gender: 'Female',
-      bloodGroup: 'O+',
-      digilockerConnected: true,
-      verificationStatus: 'verified',
-      createdAt: '2026-01-20T11:00:00.000Z',
-      lastSync: '27/10/2026, 11:00:00 AM',
-    },
-    {
-      id: 'stu_cit_001',
-      userId: 'usr_student_03',
-      collegeId: 'col_cit_02',
-      institutionName: 'Coimbatore Institute of Technology',
-      institutionCode: 'CIT-1956-AICTE',
-      fullName: 'Pooja Hegde',
-      email: 'pooja.hegde@student.cit.edu.in',
-      apaarId: '989443768456',
-      registrationNumber: '2021CIT0101',
-      admissionNumber: 'ADM2021CIT0101',
-      department: 'Electrical & Electronics Engineering',
-      course: 'B.E. — Electrical & Electronics Engineering',
-      yearOfStudy: '3rd Year',
-      semester: 'Semester 5',
-      phone: '+91 98401 23456',
-      dob: '05 Mar 2004',
-      gender: 'Female',
-      bloodGroup: 'A+',
-      digilockerConnected: false,
-      verificationStatus: 'pending',
-      createdAt: '2026-01-21T09:00:00.000Z',
-      lastSync: '27/10/2026, 09:30:00 AM',
-    },
-    {
-      id: 'stu_cit_002',
-      userId: 'usr_student_04',
-      collegeId: 'col_cit_02',
-      institutionName: 'Coimbatore Institute of Technology',
-      institutionCode: 'CIT-1956-AICTE',
-      fullName: 'Rohan Varma',
-      email: 'rohan.varma@student.cit.edu.in',
-      apaarId: '989443768457',
-      registrationNumber: '2021CIT0102',
-      admissionNumber: 'ADM2021CIT0102',
-      department: 'Mechanical Engineering',
-      course: 'B.E. — Mechanical Engineering',
-      yearOfStudy: '3rd Year',
-      semester: 'Semester 5',
-      phone: '+91 98401 65432',
-      dob: '12 Jul 2004',
-      gender: 'Male',
-      bloodGroup: 'B-',
-      digilockerConnected: true,
-      verificationStatus: 'verified',
-      createdAt: '2026-01-21T10:00:00.000Z',
-      lastSync: '27/10/2026, 10:15:00 AM',
-    },
-  ]
-
-  // Academic Records (Marksheets)
-  const academicRecords: AcademicRecord[] = [
-    {
-      id: 'acad_rec_001',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      academicYear: '2023-2024',
-      semester: 'Semester 6',
-      programme: 'B.Tech — Computer Science & Engineering',
-      department: 'Computer Science & Engineering',
-      examination: 'April-May 2024 Regular',
-      sgpa: 8.85,
-      cgpa: 8.72,
-      creditsEarned: 24,
-      totalCredits: 24,
-      status: 'published',
-      subjects: [
-        { code: 'CS601', name: 'Machine Learning & Neural Networks', credits: 4, grade: 'A+', marks: 91 },
-        { code: 'CS602', name: 'Cloud Computing Architecture', credits: 4, grade: 'A', marks: 86 },
-        { code: 'CS603', name: 'Compiler Design', credits: 4, grade: 'A', marks: 84 },
-        { code: 'CS604', name: 'Cryptography & Cyber Security', credits: 4, grade: 'A+', marks: 93 },
-        { code: 'CS605', name: 'Web Services & API Design Lab', credits: 4, grade: 'O', marks: 96 },
-        { code: 'CS606', name: 'Capstone Phase 1 Project', credits: 4, grade: 'O', marks: 98 },
-      ],
-      uploadedByAdminId: 'usr_college_admin_01',
-      createdAt: '2026-06-15T10:00:00.000Z',
-      updatedAt: '2026-06-15T10:00:00.000Z',
-    },
-    {
-      id: 'acad_rec_002',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      academicYear: '2023-2024',
-      semester: 'Semester 5',
-      programme: 'B.Tech — Computer Science & Engineering',
-      department: 'Computer Science & Engineering',
-      examination: 'Nov-Dec 2023 Regular',
-      sgpa: 8.65,
-      cgpa: 8.69,
-      creditsEarned: 24,
-      totalCredits: 24,
-      status: 'published',
-      subjects: [
-        { code: 'CS501', name: 'Design and Analysis of Algorithms', credits: 4, grade: 'A', marks: 85 },
-        { code: 'CS502', name: 'Operating Systems & Linux Kernel', credits: 4, grade: 'A+', marks: 89 },
-        { code: 'CS503', name: 'Computer Networks Protocols', credits: 4, grade: 'A', marks: 84 },
-        { code: 'CS504', name: 'Database Management Systems', credits: 4, grade: 'A+', marks: 92 },
-        { code: 'CS505', name: 'Algorithms & DBMS Lab', credits: 4, grade: 'O', marks: 95 },
-        { code: 'CS506', name: 'Industrial Internship Evaluation', credits: 4, grade: 'O', marks: 94 },
-      ],
-      uploadedByAdminId: 'usr_college_admin_01',
-      createdAt: '2026-01-10T10:00:00.000Z',
-      updatedAt: '2026-01-10T10:00:00.000Z',
-    },
-    {
-      id: 'acad_rec_003',
-      studentId: 'stu_cit_001',
-      collegeId: 'col_cit_02',
-      registrationNumber: '2021CIT0101',
-      studentName: 'Pooja Hegde',
-      academicYear: '2023-2024',
-      semester: 'Semester 4',
-      programme: 'B.E. — Electrical & Electronics Engineering',
-      department: 'Electrical & Electronics Engineering',
-      examination: 'April 2024 Regular',
-      sgpa: 8.45,
-      cgpa: 8.38,
-      creditsEarned: 22,
-      totalCredits: 22,
-      status: 'published',
-      subjects: [
-        { code: 'EE401', name: 'Electrical Machines II', credits: 4, grade: 'A', marks: 82 },
-        { code: 'EE402', name: 'Control Systems Engineering', credits: 4, grade: 'A', marks: 85 },
-        { code: 'EE403', name: 'Power Electronics', credits: 4, grade: 'A+', marks: 88 },
-        { code: 'EE404', name: 'Linear Integrated Circuits', credits: 4, grade: 'B+', marks: 78 },
-        { code: 'EE405', name: 'Control Systems Lab', credits: 3, grade: 'O', marks: 94 },
-        { code: 'EE406', name: 'Power Electronics Lab', credits: 3, grade: 'A+', marks: 90 },
-      ],
-      uploadedByAdminId: 'usr_college_admin_02',
-      createdAt: '2026-06-20T10:00:00.000Z',
-      updatedAt: '2026-06-20T10:00:00.000Z',
-    },
-  ]
-
-  // Documents
-  const documents: DocumentRecord[] = [
-    {
-      id: 'doc_niet_001',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      title: 'Class 10 (Secondary) Passing Certificate',
-      documentType: 'Secondary Certificate',
-      fileName: 'Aarav_Sharma_Class10_Certificate.pdf',
-      fileSize: '1.2 MB',
-      mimeType: 'application/pdf',
-      uploadDate: '2026-01-20',
-      uploadedBy: 'college_admin',
-      uploadedByAdminId: 'usr_college_admin_01',
-      reviewStatus: 'accepted_for_verification',
-      hashDigest: 'SHA256:4b9a1c8e2f0d5a3c7b6e9f1a0d4c8b2e',
-      verifiedAt: '2026-01-22T14:30:00.000Z',
-      correctionNotes: 'Verified against Central Board Secondary database.',
-    },
-    {
-      id: 'doc_niet_002',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      title: 'Class 12 (Higher Secondary) Marksheet',
-      documentType: 'Higher Secondary Certificate',
-      fileName: 'Aarav_Sharma_Class12_Marksheet.pdf',
-      fileSize: '1.4 MB',
-      mimeType: 'application/pdf',
-      uploadDate: '2026-01-20',
-      uploadedBy: 'college_admin',
-      uploadedByAdminId: 'usr_college_admin_01',
-      reviewStatus: 'accepted_for_verification',
-      hashDigest: 'SHA256:7c1d3e5f8a0b2c4e6d9f1a3b5c7e0d2f',
-      verifiedAt: '2026-01-22T14:35:00.000Z',
-      correctionNotes: 'Physical original attested by admissions committee.',
-    },
-    {
-      id: 'doc_niet_003',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      title: 'Semester 4 Official Grade Card',
-      documentType: 'Semester Marksheet',
-      fileName: 'Aarav_Sharma_Sem4_GradeCard.pdf',
-      fileSize: '980 KB',
-      mimeType: 'application/pdf',
-      uploadDate: '2026-02-14',
-      uploadedBy: 'college_admin',
-      uploadedByAdminId: 'usr_college_admin_01',
-      reviewStatus: 'requires_correction',
-      hashDigest: 'SHA256:1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d',
-      correctionNotes: 'Digital copy scan signature block clipped on bottom right. Registrar office must upload verified physical scan.',
-    },
-    {
-      id: 'doc_cit_001',
-      studentId: 'stu_cit_001',
-      collegeId: 'col_cit_02',
-      registrationNumber: '2021CIT0101',
-      studentName: 'Pooja Hegde',
-      title: 'Higher Secondary Passing Certificate',
-      documentType: 'Higher Secondary Certificate',
-      fileName: 'Pooja_Hegde_HSC_Certificate.pdf',
-      fileSize: '1.3 MB',
-      mimeType: 'application/pdf',
-      uploadDate: '2026-01-22',
-      uploadedBy: 'college_admin',
-      uploadedByAdminId: 'usr_college_admin_02',
-      reviewStatus: 'accepted_for_verification',
-      hashDigest: 'SHA256:8899aabbccddeeff0011223344556677',
-      verifiedAt: '2026-01-25T11:00:00.000Z',
-      correctionNotes: 'Verified by CIT Registrar.',
-    },
-  ]
-
-  // Verification Requests
-  const verificationRequests: VerificationRequestRecord[] = [
-    {
-      id: 'vreq_niet_001',
-      referenceNo: 'VR-2026-NIET-8841',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      apaarId: '210420241234',
-      recordTitle: 'Semester 6 Official Academic Transcript',
-      requestType: 'Academic Transcript Endorsement',
-      purpose: 'GATE 2026 / Higher Education Application',
-      notes: 'Applying for post-graduate enrollment. Need verified seal from controller of examinations.',
-      status: 'approved',
-      submittedDate: '2026-07-02T10:30:00.000Z',
-      reviewedByAdminId: 'usr_college_admin_01',
-      reviewerNotes: 'Reconciled against institutional examination ledger. Official digital endorsement completed.',
-      reviewedDate: '2026-07-04T15:20:00.000Z',
-      timeline: [
-        { stage: 'Request Submitted by Student', timestamp: '02 Jul 2026, 10:30 AM', status: 'completed', actor: 'Aarav Sharma' },
-        { stage: 'Registrar Document Scrutiny', timestamp: '03 Jul 2026, 02:15 PM', status: 'completed', actor: 'Dr. S. K. Kulkarni' },
-        { stage: 'Exam Ledger Verification', timestamp: '04 Jul 2026, 11:00 AM', status: 'completed', actor: 'Controller of Examinations' },
-        { stage: 'Approved & Cryptographically Signed', timestamp: '04 Jul 2026, 03:20 PM', status: 'completed', actor: 'Dr. S. K. Kulkarni' },
-      ],
-    },
-    {
-      id: 'vreq_niet_002',
-      referenceNo: 'VR-2026-NIET-8842',
-      studentId: 'stu_niet_001',
-      collegeId: 'col_niet_01',
-      registrationNumber: '2021NIET0841',
-      studentName: 'Aarav Sharma',
-      apaarId: '210420241234',
-      recordTitle: 'Class 12 Higher Secondary Migration Endorsement',
-      requestType: 'Migration Endorsement',
-      purpose: 'Inter-University Research Exchange',
-      notes: 'Required for summer semester research fellowship.',
-      status: 'pending',
-      submittedDate: '2026-10-26T09:15:00.000Z',
-      timeline: [
-        { stage: 'Request Submitted by Student', timestamp: '26 Oct 2026, 09:15 AM', status: 'completed', actor: 'Aarav Sharma' },
-        { stage: 'Awaiting College Registrar Review', timestamp: '26 Oct 2026, 09:15 AM', status: 'current' },
-        { stage: 'Verification Decision', timestamp: 'Pending', status: 'pending' },
-      ],
-    },
-    {
-      id: 'vreq_cit_001',
-      referenceNo: 'VR-2026-CIT-1001',
-      studentId: 'stu_cit_001',
-      collegeId: 'col_cit_02',
-      registrationNumber: '2021CIT0101',
-      studentName: 'Pooja Hegde',
-      apaarId: '989443768456',
-      recordTitle: 'Semester 4 Grade Card Verification',
-      requestType: 'Grade Card Verification',
-      purpose: 'State Scholarship Scheme Renewal',
-      notes: 'Need college seal for scholarship renewal portal.',
-      status: 'pending',
-      submittedDate: '2026-10-25T11:00:00.000Z',
-      timeline: [
-        { stage: 'Request Submitted by Student', timestamp: '25 Oct 2026, 11:00 AM', status: 'completed', actor: 'Pooja Hegde' },
-        { stage: 'Under Review by CIT Registrar', timestamp: '25 Oct 2026, 11:30 AM', status: 'current' },
-        { stage: 'Final Endorsement', timestamp: 'Pending', status: 'pending' },
-      ],
-    },
-  ]
-
-  // Notifications
-  const notifications: NotificationRecord[] = [
-    {
-      id: 'notif_001',
-      recipientRole: 'student',
-      recipientUserId: 'usr_student_01',
-      recipientCollegeId: 'col_niet_01',
-      title: 'Verification Request Approved',
-      message: 'Your verification request VR-2026-NIET-8841 for "Semester 6 Official Academic Transcript" has been approved by the College Registrar.',
-      type: 'verification',
-      date: '04 Jul 2026',
-      read: true,
-      actionUrl: '/student/requests',
-    },
-    {
-      id: 'notif_002',
-      recipientRole: 'student',
-      recipientUserId: 'usr_student_01',
-      recipientCollegeId: 'col_niet_01',
-      title: 'Document Correction Required',
-      message: 'College Registrar flagged "Semester 4 Official Grade Card" for correction: Signature block clipped on digital scan.',
-      type: 'document',
-      date: '14 Feb 2026',
-      read: false,
-      actionUrl: '/student/documents',
-    },
-    {
-      id: 'notif_003',
-      recipientRole: 'student',
-      recipientUserId: 'usr_student_01',
-      recipientCollegeId: 'col_niet_01',
-      title: 'Institutional Circular',
-      message: 'Semester 7 final examination schedule and APAAR credit synchronization notice published by Dean Office.',
-      type: 'announcement',
-      date: '25 Oct 2026',
-      read: false,
-      actionUrl: '/student/records',
-    },
-    {
-      id: 'notif_004',
-      recipientRole: 'college_admin',
-      recipientUserId: 'usr_college_admin_01',
-      recipientCollegeId: 'col_niet_01',
-      title: 'New Verification Request Submitted',
-      message: 'Student Aarav Sharma (2021NIET0841) submitted a verification request for "Class 12 Higher Secondary Migration Endorsement".',
-      type: 'verification',
-      date: '26 Oct 2026',
-      read: false,
-      actionUrl: '/admin/verifications',
-    },
-    {
-      id: 'notif_cit_001',
-      recipientRole: 'student',
-      recipientUserId: 'usr_student_03',
-      recipientCollegeId: 'col_cit_02',
-      title: 'CIT Admission Credential Verified',
-      message: 'Your Higher Secondary Passing Certificate has been validated by Coimbatore Institute of Technology Registrar.',
-      type: 'document',
-      date: '25 Jan 2026',
-      read: true,
-      actionUrl: '/student/documents',
-    },
-  ]
-
-  // Audit Logs
-  const auditLogs: AuditLogRecord[] = [
-    {
-      id: 'aud_001',
-      collegeId: 'col_niet_01',
-      actorId: 'usr_college_admin_01',
-      actorName: 'Dr. S. K. Kulkarni',
-      actorRole: 'College Registrar',
-      action: 'APPROVE_VERIFICATION',
-      targetType: 'VERIFICATION_REQUEST',
-      targetId: 'vreq_niet_001',
-      details: 'Approved transcript verification for Aarav Sharma (2021NIET0841). Ledger reconciled.',
-      timestamp: '2026-07-04T15:20:00.000Z',
-    },
-    {
-      id: 'aud_002',
-      collegeId: 'col_niet_01',
-      actorId: 'usr_college_admin_01',
-      actorName: 'Dr. S. K. Kulkarni',
-      actorRole: 'College Registrar',
-      action: 'FLAG_DOCUMENT_CORRECTION',
-      targetType: 'DOCUMENT',
-      targetId: 'doc_niet_003',
-      details: 'Flagged Semester 4 Grade Card for Aarav Sharma: Clipped signature block.',
-      timestamp: '2026-02-14T11:00:00.000Z',
+      id: 'inv_root_01',
+      code: 'AICTE-ADMIN-ENROLL-2026',
+      createdByAdminId: 'usr_platform_admin_01',
+      createdDate: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2030-01-01T00:00:00.000Z',
+      used: false,
     },
   ]
 
   return {
-    colleges,
+    colleges: [],
     users,
-    students,
-    academicRecords,
-    documents,
-    verificationRequests,
-    notifications,
-    auditLogs,
+    students: [],
+    academicRecords: [],
+    documents: [],
+    verificationRequests: [],
+    notifications: [],
+    announcements: [],
+    auditLogs: [],
+    invitationCodes,
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DATABASE INITIALIZATION & MIGRATION
+// INSTITUTION IDENTIFIER & NAME NORMALIZATION HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
+export function normalizeInstitutionCode(code: string): string {
+  if (!code) return ''
+  return code
+    .trim()
+    .toUpperCase()
+    .replace(/\s*([-\/._])\s*/g, '$1') // remove unnecessary spaces around hyphens/slashes/dots
+    .replace(/\s+/g, ' ')
+}
+
+export function normalizeInstitutionName(name: string): string {
+  if (!name) return ''
+  return name
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATABASE INITIALIZATION & CANONICAL COLLEGE RECONCILIATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function reconcileAndMergeDuplicateColleges(db: DatabaseSchema): DatabaseSchema {
+  if (!db || !Array.isArray(db.colleges)) return db
+
+  const canonicalColleges: CollegeRecord[] = []
+  const idRedirectionMap = new Map<string, CollegeRecord>()
+
+  // 1. Deduplicate & establish canonical colleges
+  for (const college of db.colleges) {
+    const normCode = normalizeInstitutionCode(college.code)
+    const normName = normalizeInstitutionName(college.name)
+
+    // Search existing canonical entries for matching code or exact name
+    let matchedCanonical = canonicalColleges.find((c) => {
+      const cNormCode = normalizeInstitutionCode(c.code)
+      const cNormName = normalizeInstitutionName(c.name)
+      if (normCode && cNormCode && normCode === cNormCode) return true
+      if (normName && cNormName && normName === cNormName) return true
+      return false
+    })
+
+    if (!matchedCanonical) {
+      college.code = normalizeInstitutionCode(college.code)
+      college.name = college.name.trim()
+      canonicalColleges.push(college)
+      idRedirectionMap.set(college.id, college)
+    } else {
+      idRedirectionMap.set(college.id, matchedCanonical)
+
+      // Merge configured departments
+      if (Array.isArray(college.departments) && college.departments.length > 0) {
+        if (!matchedCanonical.departments) matchedCanonical.departments = []
+        for (const dept of college.departments) {
+          const dTrim = dept.trim()
+          if (dTrim && !matchedCanonical.departments.some((d) => d.toLowerCase() === dTrim.toLowerCase())) {
+            matchedCanonical.departments.push(dTrim)
+          }
+        }
+      }
+
+      // Preserve status if any duplicate is active/approved
+      if (college.status === 'active' || college.status === 'approved') {
+        matchedCanonical.status = 'approved'
+      }
+
+      // Preserve adminUserId
+      if (!matchedCanonical.adminUserId && college.adminUserId) {
+        matchedCanonical.adminUserId = college.adminUserId
+      }
+    }
+  }
+
+  // Set canonical deduplicated list
+  db.colleges = canonicalColleges
+
+  // 2. Re-point child entities whose collegeId pointed to a merged duplicate
+  // Students
+  if (Array.isArray(db.students)) {
+    for (const s of db.students) {
+      if (s.collegeId && idRedirectionMap.has(s.collegeId)) {
+        const canonical = idRedirectionMap.get(s.collegeId)!
+        s.collegeId = canonical.id
+        s.institutionName = canonical.name
+        s.institutionCode = canonical.code
+      } else {
+        const sNormCode = normalizeInstitutionCode(s.institutionCode)
+        const sNormName = normalizeInstitutionName(s.institutionName)
+        const matched = canonicalColleges.find((c) => {
+          if (sNormCode && normalizeInstitutionCode(c.code) === sNormCode) return true
+          if (sNormName && normalizeInstitutionName(c.name) === sNormName) return true
+          return false
+        })
+        if (matched) {
+          s.collegeId = matched.id
+          s.institutionName = matched.name
+          s.institutionCode = matched.code
+        }
+      }
+    }
+  }
+
+  // Users (Students & College Admins)
+  if (Array.isArray(db.users)) {
+    for (const u of db.users) {
+      if (u.role === 'student') {
+        const s = db.students.find((stu) => stu.userId === u.id || (u.apaarId && stu.apaarId === u.apaarId))
+        if (s) {
+          u.collegeId = s.collegeId
+          u.institutionName = s.institutionName
+          u.institutionCode = s.institutionCode
+        }
+      } else if (u.role === 'college_admin') {
+        if (u.collegeId && idRedirectionMap.has(u.collegeId)) {
+          const canonical = idRedirectionMap.get(u.collegeId)!
+          u.collegeId = canonical.id
+          u.institutionName = canonical.name
+          u.institutionCode = canonical.code
+        } else {
+          const uNormCode = normalizeInstitutionCode(u.institutionCode || '')
+          const uNormName = normalizeInstitutionName(u.institutionName || '')
+          const matched = canonicalColleges.find((c) => {
+            if (uNormCode && normalizeInstitutionCode(c.code) === uNormCode) return true
+            if (uNormName && normalizeInstitutionName(c.name) === uNormName) return true
+            return false
+          })
+          if (matched) {
+            u.collegeId = matched.id
+            u.institutionName = matched.name
+            u.institutionCode = matched.code
+          }
+        }
+
+        // If college has no active adminUserId or matches this user, associate
+        if (u.collegeId) {
+          const col = canonicalColleges.find((c) => c.id === u.collegeId)
+          if (col && (!col.adminUserId || col.adminUserId === u.id)) {
+            col.adminUserId = u.id
+          }
+        }
+      }
+    }
+  }
+
+  // Academic Records
+  if (Array.isArray(db.academicRecords)) {
+    for (const r of db.academicRecords) {
+      if (r.collegeId && idRedirectionMap.has(r.collegeId)) {
+        r.collegeId = idRedirectionMap.get(r.collegeId)!.id
+      }
+    }
+  }
+
+  // Documents
+  if (Array.isArray(db.documents)) {
+    for (const d of db.documents) {
+      if (d.collegeId && idRedirectionMap.has(d.collegeId)) {
+        d.collegeId = idRedirectionMap.get(d.collegeId)!.id
+      }
+    }
+  }
+
+  // Verification Requests
+  if (Array.isArray(db.verificationRequests)) {
+    for (const v of db.verificationRequests) {
+      if (v.collegeId && idRedirectionMap.has(v.collegeId)) {
+        v.collegeId = idRedirectionMap.get(v.collegeId)!.id
+      }
+    }
+  }
+
+  // Notifications
+  if (Array.isArray(db.notifications)) {
+    for (const n of db.notifications) {
+      if (n.recipientCollegeId && idRedirectionMap.has(n.recipientCollegeId)) {
+        n.recipientCollegeId = idRedirectionMap.get(n.recipientCollegeId)!.id
+      }
+    }
+  }
+
+  // Audit Logs
+  if (Array.isArray(db.auditLogs)) {
+    for (const a of db.auditLogs) {
+      if (a.collegeId && idRedirectionMap.has(a.collegeId)) {
+        a.collegeId = idRedirectionMap.get(a.collegeId)!.id
+      }
+    }
+  }
+
+  // Announcements
+  if (Array.isArray(db.announcements)) {
+    for (const ann of db.announcements) {
+      if (ann.collegeId && idRedirectionMap.has(ann.collegeId)) {
+        ann.collegeId = idRedirectionMap.get(ann.collegeId)!.id
+      }
+    }
+  }
+
+  return db
+}
+
+export function sanitizeDatabase(db: DatabaseSchema): DatabaseSchema {
+  if (!db || !Array.isArray(db.colleges) || !Array.isArray(db.students)) return db
+
+  // Reconcile and merge duplicate colleges dynamically
+  reconcileAndMergeDuplicateColleges(db)
+
+  // Ensure user records remain synchronized with canonical college
+  if (Array.isArray(db.users)) {
+    for (const u of db.users) {
+      if (u.role === 'student') {
+        const s = db.students.find((stu) => stu.userId === u.id || (u.apaarId && stu.apaarId === u.apaarId))
+        if (s) {
+          u.collegeId = s.collegeId
+          u.institutionName = s.institutionName
+          u.institutionCode = s.institutionCode
+        } else if (u.collegeId) {
+          const col = db.colleges.find((c) => c.id === u.collegeId)
+          if (col) {
+            u.institutionName = col.name
+            u.institutionCode = col.code
+          }
+        }
+      } else if (u.role === 'college_admin' && u.collegeId) {
+        const col = db.colleges.find((c) => c.id === u.collegeId)
+        if (col) {
+          u.institutionName = col.name
+          u.institutionCode = col.code
+        }
+      }
+    }
+  }
+
+  // Ensure platform admin has security question, username and identification
+  if (Array.isArray(db.users)) {
+    const rootAdmin = db.users.find(
+      (u) => u.id === 'usr_platform_admin_01' || u.email.toLowerCase() === 'admin@aicte.gov.in'
+    )
+    if (rootAdmin) {
+      if (!rootAdmin.username) rootAdmin.username = 'aicte_central_admin'
+      if (!rootAdmin.securityQuestion) rootAdmin.securityQuestion = 'What was the name of your first school?'
+      if (!rootAdmin.securityAnswerHash) {
+        rootAdmin.securityAnswerHash = hashSecurityAnswer('Kendriya Vidyalaya', 'c1a8d052b947e3f1')
+      }
+      if (!rootAdmin.employeeId) rootAdmin.employeeId = 'AICTE-HQ-001'
+      if (!rootAdmin.designation) rootAdmin.designation = 'Central Platform Administrator'
+      if (rootAdmin.failedLoginAttempts === undefined) rootAdmin.failedLoginAttempts = 0
+      if (rootAdmin.lockoutUntil === undefined) rootAdmin.lockoutUntil = 0
+      if (!rootAdmin.status) rootAdmin.status = 'active'
+    }
+  }
+
+  // Ensure invitation codes array exists
+  if (!Array.isArray(db.invitationCodes) || db.invitationCodes.length === 0) {
+    db.invitationCodes = [
+      {
+        id: 'inv_root_01',
+        code: 'AICTE-ADMIN-ENROLL-2026',
+        createdByAdminId: 'usr_platform_admin_01',
+        createdDate: '2026-01-01T00:00:00.000Z',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        used: false,
+      },
+    ]
+  }
+
+  return db
+}
+
 export function getDatabase(): DatabaseSchema {
-  if (dbCache) return dbCache
+  if (dbCache) return sanitizeDatabase(dbCache)
 
   const tmpDbFile = path.join('/tmp', 'auth_database.json')
 
@@ -791,29 +773,30 @@ export function getDatabase(): DatabaseSchema {
     try {
       const parsed = JSON.parse(fs.readFileSync(tmpDbFile, 'utf-8'))
       if (parsed.colleges && parsed.students) {
-        dbCache = parsed
-        return dbCache!
+        dbCache = sanitizeDatabase(parsed)
+        return dbCache
       }
     } catch {}
   }
 
-  // Check persistent DB_FILE
-  if (fs.existsSync(DB_FILE)) {
+  // Check persistent DB_FILE and candidate paths
+  const dbPath = resolveDbFilePath()
+  if (fs.existsSync(dbPath)) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'))
+      const parsed = JSON.parse(fs.readFileSync(dbPath, 'utf-8'))
       if (parsed.colleges && parsed.students && parsed.academicRecords) {
-        dbCache = parsed
-        return dbCache!
+        dbCache = sanitizeDatabase(parsed)
+        return dbCache
       }
       // Migrate legacy schema to relational schema
-      dbCache = migrateLegacyDatabase(parsed)
+      dbCache = sanitizeDatabase(migrateLegacyDatabase(parsed))
       saveDatabase(dbCache)
       return dbCache
     } catch {}
   }
 
   // Otherwise, create fresh initial relational seed
-  dbCache = createInitialSeed()
+  dbCache = sanitizeDatabase(createInitialSeed())
   saveDatabase(dbCache)
   return dbCache
 }
@@ -839,64 +822,28 @@ export function saveDatabase(db: DatabaseSchema): void {
 
 function migrateLegacyDatabase(legacy: any): DatabaseSchema {
   const seed = createInitialSeed()
-  const mergedUsers = [...seed.users]
-  const mergedStudents = [...seed.students]
-
-  if (Array.isArray(legacy.users)) {
-    for (const u of legacy.users) {
-      if (!mergedUsers.some((x) => x.id === u.id || x.email.toLowerCase() === u.email.toLowerCase())) {
-        mergedUsers.push(u)
-      }
-    }
-  }
-
-  if (Array.isArray(legacy.studentProfiles)) {
-    for (const p of legacy.studentProfiles) {
-      const user = mergedUsers.find((u) => u.id === p.userId || (p.apaarId && u.apaarId === p.apaarId))
-      const college = seed.colleges.find(
-        (c) =>
-          c.code.toLowerCase() === (p.institutionCode || '').toLowerCase() ||
-          c.name.toLowerCase().includes((p.institutionName || '').toLowerCase())
-      ) || seed.colleges[0]
-
-      if (!mergedStudents.some((s) => s.id === p.id || s.userId === p.userId || s.registrationNumber === p.registrationNumber)) {
-        mergedStudents.push({
-          id: p.id || `stu_${Date.now()}`,
-          userId: user?.id || p.userId || `usr_${Date.now()}`,
-          collegeId: college.id,
-          institutionName: college.name,
-          institutionCode: college.code,
-          fullName: p.fullName,
-          email: p.email || (user ? user.email : ''),
-          apaarId: p.apaarId,
-          registrationNumber: p.registrationNumber || `REG${p.apaarId?.slice(-6) || '1000'}`,
-          admissionNumber: `ADM${p.registrationNumber || '1000'}`,
-          department: p.department || 'Engineering & Technology',
-          course: p.course || 'Undergraduate Degree',
-          yearOfStudy: p.yearOfStudy || '1st Year',
-          semester: 'Semester 1',
-          phone: p.phone || '',
-          dob: p.dob || '01 Jan 2004',
-          gender: p.gender || 'Other',
-          bloodGroup: p.bloodGroup || 'Unknown',
-          digilockerConnected: Boolean(p.digilockerConnected),
-          verificationStatus: 'verified',
-          createdAt: new Date().toISOString(),
-          lastSync: p.lastSync,
-        })
-      }
-    }
-  }
+  const colleges = Array.isArray(legacy.colleges) ? legacy.colleges : []
+  const users = Array.isArray(legacy.users) ? legacy.users : [...seed.users]
+  const students = Array.isArray(legacy.students) ? legacy.students : []
+  const academicRecords = Array.isArray(legacy.academicRecords) ? legacy.academicRecords : []
+  const documents = Array.isArray(legacy.documents) ? legacy.documents : []
+  const verificationRequests = Array.isArray(legacy.verificationRequests) ? legacy.verificationRequests : []
+  const notifications = Array.isArray(legacy.notifications) ? legacy.notifications : []
+  const announcements = Array.isArray(legacy.announcements) ? legacy.announcements : []
+  const auditLogs = Array.isArray(legacy.auditLogs) ? legacy.auditLogs : []
+  const invitationCodes = Array.isArray(legacy.invitationCodes) ? legacy.invitationCodes : [...(seed.invitationCodes || [])]
 
   return {
-    colleges: seed.colleges,
-    users: mergedUsers,
-    students: mergedStudents,
-    academicRecords: seed.academicRecords,
-    documents: seed.documents,
-    verificationRequests: seed.verificationRequests,
-    notifications: seed.notifications,
-    auditLogs: seed.auditLogs,
+    colleges,
+    users,
+    students,
+    academicRecords,
+    documents,
+    verificationRequests,
+    notifications,
+    announcements,
+    auditLogs,
+    invitationCodes,
   }
 }
 
@@ -916,13 +863,59 @@ export const dbService = {
 
   findCollegeByCode(code: string): CollegeRecord | undefined {
     const db = getDatabase()
-    const clean = code.trim().toLowerCase()
-    return db.colleges.find((c) => c.code.trim().toLowerCase() === clean)
+    if (!code) return undefined
+    const norm = normalizeInstitutionCode(code)
+    return db.colleges.find((c) => normalizeInstitutionCode(c.code) === norm)
+  },
+
+  findCollegeByName(name: string): CollegeRecord | undefined {
+    const db = getDatabase()
+    if (!name) return undefined
+    const norm = normalizeInstitutionName(name)
+    return db.colleges.find((c) => {
+      const cNorm = normalizeInstitutionName(c.name)
+      return cNorm === norm || cNorm.includes(norm) || norm.includes(cNorm)
+    })
+  },
+
+  findMatchingCollege(query: { id?: string; code?: string; name?: string }): CollegeRecord | undefined {
+    const db = getDatabase()
+    if (query.id) {
+      const col = db.colleges.find((c) => c.id === query.id)
+      if (col) return col
+    }
+    if (query.code) {
+      const normCode = normalizeInstitutionCode(query.code)
+      if (normCode) {
+        const col = db.colleges.find((c) => normalizeInstitutionCode(c.code) === normCode)
+        if (col) return col
+      }
+    }
+    if (query.name) {
+      const normName = normalizeInstitutionName(query.name)
+      if (normName) {
+        const col = db.colleges.find((c) => {
+          const cNorm = normalizeInstitutionName(c.name)
+          return cNorm === normName || cNorm.includes(normName) || normName.includes(cNorm)
+        })
+        if (col) return col
+      }
+    }
+    return undefined
   },
 
   findUserById(id: string): UserRecord | undefined {
     const db = getDatabase()
     return db.users.find((u) => u.id === id)
+  },
+
+  updateUser(id: string, updates: Partial<UserRecord>): UserRecord | undefined {
+    const db = getDatabase()
+    const user = db.users.find((u) => u.id === id)
+    if (!user) return undefined
+    Object.assign(user, updates)
+    saveDatabase(db)
+    return user
   },
 
   findStudentByUserId(userId: string): StudentRecord | undefined {
@@ -937,23 +930,158 @@ export const dbService = {
 
   findStudentByRegistrationNumber(collegeId: string, regNo: string): StudentRecord | undefined {
     const db = getDatabase()
-    const cleanReg = regNo.trim().toUpperCase()
+    const cleanReg = (regNo || '').replace(/[\s-]+/g, '').toUpperCase()
     return db.students.find(
-      (s) => s.collegeId === collegeId && s.registrationNumber.trim().toUpperCase() === cleanReg
+      (s) => s.collegeId === collegeId && (s.registrationNumber || '').replace(/[\s-]+/g, '').toUpperCase() === cleanReg
     )
   },
 
-  searchStudentsInCollege(collegeId: string, query: string): StudentRecord[] {
+  getCollegeDepartments(collegeIdOrCode: string): string[] {
     const db = getDatabase()
-    const q = (query || '').trim().toLowerCase()
+    const clean = (collegeIdOrCode || '').trim()
+    const normCode = normalizeInstitutionCode(clean)
+    const college = db.colleges.find(
+      (c) =>
+        c.id === clean ||
+        c.code.toLowerCase() === clean.toLowerCase() ||
+        normalizeInstitutionCode(c.code) === normCode
+    )
+
+    if (college && college.departments && Array.isArray(college.departments) && college.departments.length > 0) {
+      return college.departments
+    }
+
+    // Default configuration for known recognized institutions
+    const lookupKey = college ? college.id : clean
+    const codeKey = college ? normalizeInstitutionCode(college.code) : normCode
+    const defaults =
+      DEFAULT_COLLEGE_DEPARTMENTS[lookupKey] ||
+      DEFAULT_COLLEGE_DEPARTMENTS[codeKey] ||
+      DEFAULT_COLLEGE_DEPARTMENTS[clean]
+
+    if (defaults && defaults.length > 0) {
+      return defaults
+    }
+
+    // If college exists, fallback to standard technical departments
+    if (college) {
+      return [
+        'Computer Science and Engineering',
+        'Information Technology',
+        'Electronics and Communication Engineering',
+        'Mechanical Engineering',
+        'Civil Engineering',
+      ]
+    }
+
+    return []
+  },
+
+  updateCollegeDepartments(collegeId: string, departments: string[]): string[] {
+    const db = getDatabase()
+    const college = db.colleges.find((c) => c.id === collegeId)
+    if (!college) return []
+    college.departments = departments
+      .map((d) => d.trim())
+      .filter((d) => d.length > 0)
+    saveDatabase(db)
+    return college.departments
+  },
+
+  updateStudentProfile(userId: string, updates: Partial<StudentRecord>): StudentRecord | undefined {
+    const db = getDatabase()
+    const student = db.students.find((s) => s.userId === userId)
+    if (!student) return undefined
+
+    // Allowed student self-service profile updates
+    if (updates.department && updates.department.trim()) {
+      student.department = updates.department.trim()
+    }
+    if (updates.course && updates.course.trim()) {
+      student.course = updates.course.trim()
+    }
+    if (updates.phone !== undefined) {
+      student.phone = updates.phone.trim()
+    }
+    if (updates.bloodGroup && updates.bloodGroup.trim()) {
+      student.bloodGroup = updates.bloodGroup.trim()
+    }
+    if (updates.dob && updates.dob.trim()) {
+      student.dob = updates.dob.trim()
+    }
+
+    saveDatabase(db)
+    return student
+  },
+
+  searchStudentsInCollege(
+    collegeId: string,
+    query: string,
+    filters?: {
+      department?: string
+      academicYear?: string
+      searchType?: 'registrationNumber' | 'apaarId' | 'all'
+    }
+  ): StudentRecord[] {
+    const db = getDatabase()
+    const rawQ = (query || '').trim()
+    const q = rawQ.toLowerCase()
+    const cleanDigits = rawQ.replace(/\D/g, '')
+    const cleanRegQ = rawQ.replace(/[\s-]+/g, '').toUpperCase()
+    const searchType = filters?.searchType || 'all'
+
     return db.students.filter((s) => {
+      // 1. Mandatory College Isolation: Student must belong to this college's unique college_id
       if (s.collegeId !== collegeId) return false
-      if (!q) return true
+
+      // 2. Department filter if provided
+      if (filters?.department && filters.department !== 'all') {
+        if (s.department.toLowerCase() !== filters.department.toLowerCase()) return false
+      }
+
+      // 3. Academic year or batch filter if provided
+      if (filters?.academicYear && filters.academicYear !== 'all') {
+        const matchesYear =
+          (s.academicYear && s.academicYear.toLowerCase().includes(filters.academicYear.toLowerCase())) ||
+          (s.admissionYear && String(s.admissionYear).includes(filters.academicYear))
+        if (!matchesYear) return false
+      }
+
+      // 4. Query matching
+      if (!rawQ) return true
+
+      const studentApaarDigits = (s.apaarId || '').replace(/\D/g, '')
+      const studentCleanReg = (s.registrationNumber || '').replace(/[\s-]+/g, '').toUpperCase()
+
+      // Explicit Search Type: APAAR ID Search
+      if (searchType === 'apaarId') {
+        // Enforce 12-digit APAAR specification validation
+        if (cleanDigits.length !== 12) return false
+        return studentApaarDigits === cleanDigits
+      }
+
+      // Explicit Search Type: College Registration Number Search
+      if (searchType === 'registrationNumber') {
+        if (!cleanRegQ) return false
+        return (
+          studentCleanReg === cleanRegQ ||
+          (cleanRegQ.length >= 3 && studentCleanReg.includes(cleanRegQ))
+        )
+      }
+
+      // Default 'all'
       return (
         s.fullName.toLowerCase().includes(q) ||
         s.registrationNumber.toLowerCase().includes(q) ||
-        (s.apaarId && s.apaarId.includes(q)) ||
-        s.department.toLowerCase().includes(q)
+        studentCleanReg === cleanRegQ ||
+        (cleanRegQ.length >= 3 && studentCleanReg.includes(cleanRegQ)) ||
+        (cleanDigits.length >= 4 && studentApaarDigits.includes(cleanDigits)) ||
+        (s.apaarId && s.apaarId.toLowerCase().includes(q)) ||
+        s.department.toLowerCase().includes(q) ||
+        (s.course && s.course.toLowerCase().includes(q)) ||
+        (s.academicYear && s.academicYear.toLowerCase().includes(q)) ||
+        (s.admissionYear && String(s.admissionYear).includes(q)) ||
+        (s.email && s.email.toLowerCase().includes(q))
       )
     })
   },
@@ -964,13 +1092,18 @@ export const dbService = {
     if (!student) return null
 
     const college = db.colleges.find((c) => c.id === student.collegeId)
+    if (college) {
+      student.institutionName = college.name
+      student.institutionCode = college.code
+    }
     const academicRecords = db.academicRecords.filter((r) => r.studentId === student.id)
     const documents = db.documents.filter((d) => d.studentId === student.id)
     const verificationRequests = db.verificationRequests.filter((v) => v.studentId === student.id)
+    // Strictly isolate notifications: specific student notifications must match recipientUserId
     const notifications = db.notifications.filter(
       (n) =>
         n.recipientUserId === userId ||
-        (n.recipientRole === 'student' && n.recipientCollegeId === student.collegeId)
+        (n.recipientRole === 'student' && n.recipientCollegeId === student.collegeId && !n.recipientUserId)
     )
 
     return {
@@ -1065,7 +1198,9 @@ export const dbService = {
   uploadDocument(params: {
     collegeId: string
     adminUserId: string
-    studentRegistrationNumber: string
+    studentRegistrationNumber?: string
+    studentId?: string
+    apaarId?: string
     title: string
     documentType: string
     fileName: string
@@ -1080,22 +1215,41 @@ export const dbService = {
       creditsEarned?: number
       totalCredits?: number
       examination?: string
+      subjects?: { code: string; name: string; credits: number; grade: string; marks?: number }[]
     }
   }): { success: boolean; document?: DocumentRecord; academicRecord?: AcademicRecord; error?: string } {
     const db = getDatabase()
     const college = db.colleges.find((c) => c.id === params.collegeId)
     if (!college) return { success: false, error: 'Unauthorized college access' }
 
-    // Search student in THIS college
-    const cleanReg = params.studentRegistrationNumber.trim().toUpperCase()
+    // Validate file type (Allowed: pdf, png, jpg, jpeg, docx, doc, txt)
+    const ext = path.extname(params.fileName).toLowerCase()
+    const allowedExts = ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc', '.txt']
+    if (params.fileName && !allowedExts.includes(ext)) {
+      return {
+        success: false,
+        error: `Invalid file format "${ext}". Allowed formats are PDF, PNG, JPG, JPEG, DOCX, DOC, and TXT.`,
+      }
+    }
+
+    // Search student in THIS college by Registration Number, Student Database ID, or APAAR ID
+    const normReg = (params.studentRegistrationNumber || '').replace(/[\s-]+/g, '').toUpperCase()
+    const normApaar = (params.apaarId || params.studentRegistrationNumber || '').replace(/\D/g, '')
     const student = db.students.find(
-      (s) => s.collegeId === college.id && s.registrationNumber.trim().toUpperCase() === cleanReg
+      (s) =>
+        s.collegeId === college.id &&
+        (
+          (normReg && (s.registrationNumber || '').replace(/[\s-]+/g, '').toUpperCase() === normReg) ||
+          (params.studentId && s.id === params.studentId) ||
+          (normApaar.length >= 4 && s.apaarId && s.apaarId.replace(/\D/g, '') === normApaar)
+        )
     )
 
     if (!student) {
+      const searchIdentifier = params.studentRegistrationNumber || params.apaarId || params.studentId || 'unknown'
       return {
         success: false,
-        error: `No registered student found with Registration Number "${params.studentRegistrationNumber}" in ${college.name}. Please confirm student enrollment before uploading official records.`,
+        error: `No registered student found with identifier "${searchIdentifier}" in ${college.name}. Please confirm student enrollment before uploading official records.`,
       }
     }
 
@@ -1144,11 +1298,13 @@ export const dbService = {
         creditsEarned: params.marksheetDetails.creditsEarned ?? 24,
         totalCredits: params.marksheetDetails.totalCredits ?? 24,
         status: 'published',
-        subjects: [
-          { code: 'AC01', name: `${params.title} - Module 1`, credits: 4, grade: 'A+', marks: 92 },
-          { code: 'AC02', name: `${params.title} - Module 2`, credits: 4, grade: 'A', marks: 88 },
-          { code: 'AC03', name: 'Practical & Laboratory Assessment', credits: 4, grade: 'O', marks: 95 },
-        ],
+        subjects: (params.marksheetDetails.subjects || []).map((s: any) => ({
+          code: s.code,
+          name: s.name,
+          credits: s.credits,
+          grade: s.grade,
+          marks: s.marks ?? 85,
+        })),
         uploadedByAdminId: params.adminUserId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1156,15 +1312,15 @@ export const dbService = {
       db.academicRecords.push(newAcadRec)
     }
 
-    // Create Notification specifically for this student
+    // Create Notification specifically for this student per Section 4.A
     const notifId = `notif_${Date.now()}_${Math.floor(Math.random() * 1000)}`
     db.notifications.unshift({
       id: notifId,
       recipientRole: 'student',
       recipientUserId: student.userId,
       recipientCollegeId: college.id,
-      title: 'New Official Document Uploaded',
-      message: `Your college administration (${college.name}) has uploaded an official academic record: "${params.title}" (${params.documentType}). It is now available in your portal.`,
+      title: 'New Document Uploaded',
+      message: `New Document Uploaded: Your college has uploaded your ${params.title}. Log in to your Student Portal to view and download it.`,
       type: 'document',
       date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
       read: false,
@@ -1209,13 +1365,30 @@ export const dbService = {
 
     const student = db.students.find((s) => s.id === doc.studentId)
     if (student) {
+      let notifTitle = 'Certificate Update'
+      let notifMessage = `Certificate Update: Your ${doc.title} status has been updated to "${params.status}".`
+
+      if (params.status === 'accepted_for_verification') {
+        notifTitle = 'Certificate Verified'
+        notifMessage = `Certificate Verified: Your ${doc.title} has been verified. You can view its current status in your Student Portal.`
+      } else if (params.status === 'rejected') {
+        notifTitle = 'Certificate Update'
+        notifMessage = `Certificate Update: Your ${doc.title} has been rejected.${params.correctionNotes ? ' Reason: ' + params.correctionNotes + '.' : ''} Please check the details and contact your college if clarification is required.`
+      } else if (params.status === 'under_review' || params.status === 'pending_review') {
+        notifTitle = 'Certificate Verification Pending'
+        notifMessage = `Certificate Verification: Your ${doc.title} is awaiting verification.`
+      } else if (params.status === 'requires_correction') {
+        notifTitle = 'Certificate Requires Correction'
+        notifMessage = `Certificate Update: Your ${doc.title} requires correction.${params.correctionNotes ? ' Details: ' + params.correctionNotes + '.' : ''} Please check the details and contact your college if clarification is required.`
+      }
+
       db.notifications.unshift({
-        id: `notif_${Date.now()}`,
+        id: `notif_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         recipientRole: 'student',
         recipientUserId: student.userId,
         recipientCollegeId: params.collegeId,
-        title: params.status === 'accepted_for_verification' ? 'Document Verified' : 'Document Review Notice',
-        message: `Your document "${doc.title}" has been updated to "${params.status}" by the college registrar.${params.correctionNotes ? ' Remarks: ' + params.correctionNotes : ''}`,
+        title: notifTitle,
+        message: notifMessage,
         type: 'document',
         date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         read: false,
@@ -1322,16 +1495,30 @@ export const dbService = {
       note: req.reviewerNotes,
     })
 
-    // Notify the Student
+    // Notify the Student per Section 4.B & 4.C
     const student = db.students.find((s) => s.id === req.studentId)
     if (student) {
+      let notifTitle = 'Certificate Update'
+      let notifMessage = `Certificate Update: Your ${req.recordTitle} status has been updated.`
+
+      if (params.decision === 'approved') {
+        notifTitle = 'Certificate Verified'
+        notifMessage = `Certificate Verified: Your ${req.recordTitle} (${req.referenceNo}) has been verified. You can view its current status in your Student Portal.`
+      } else if (params.decision === 'rejected') {
+        notifTitle = 'Certificate Update'
+        notifMessage = `Certificate Update: Your ${req.recordTitle} (${req.referenceNo}) has been rejected.${req.reviewerNotes ? ' Reason: ' + req.reviewerNotes + '.' : ''} Please check the details and contact your college if clarification is required.`
+      } else if (params.decision === 'returned_for_correction') {
+        notifTitle = 'Certificate Requires Correction'
+        notifMessage = `Certificate Update: Your ${req.recordTitle} (${req.referenceNo}) requires correction.${req.reviewerNotes ? ' Details: ' + req.reviewerNotes + '.' : ''} Please check the details and contact your college if clarification is required.`
+      }
+
       db.notifications.unshift({
-        id: `notif_${Date.now()}`,
+        id: `notif_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         recipientRole: 'student',
         recipientUserId: student.userId,
         recipientCollegeId: params.collegeId,
-        title: `Verification Request ${params.decision === 'approved' ? 'Approved' : 'Updated'}`,
-        message: `Your request (${req.referenceNo}) for "${req.recordTitle}" was ${params.decision} by the College Registrar. ${req.reviewerNotes ? 'Remarks: ' + req.reviewerNotes : ''}`,
+        title: notifTitle,
+        message: notifMessage,
         type: 'verification',
         date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         read: false,
@@ -1357,6 +1544,33 @@ export const dbService = {
     return { success: true, request: req }
   },
 
+  // College Announcements
+  publishAnnouncement(params: {
+    collegeId: string
+    adminUserId: string
+    title: string
+    message: string
+  }): { success: boolean; announcement?: CollegeAnnouncementRecord; error?: string } {
+    const db = getDatabase()
+    if (!db.announcements) db.announcements = []
+    const ann: CollegeAnnouncementRecord = {
+      id: `ann_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      collegeId: params.collegeId,
+      title: params.title.trim(),
+      message: params.message.trim(),
+      publishedByAdminId: params.adminUserId,
+      publishedDate: new Date().toISOString(),
+    }
+    db.announcements.unshift(ann)
+    saveDatabase(db)
+    return { success: true, announcement: ann }
+  },
+
+  getAnnouncementsForCollege(collegeId: string): CollegeAnnouncementRecord[] {
+    const db = getDatabase()
+    return (db.announcements || []).filter((a) => a.collegeId === collegeId)
+  },
+
   // Mark Notification Read
   markNotificationRead(userId: string, notificationId: string): boolean {
     const db = getDatabase()
@@ -1380,5 +1594,90 @@ export const dbService = {
     }
     saveDatabase(db)
     return true
+  },
+
+  // Platform Administrator Invitations & Enrollment
+  createAdminInvitation(createdByAdminId: string, expiresInDays: number = 7, customCode?: string): AdminInvitationRecord {
+    const db = getDatabase()
+    if (!db.invitationCodes) db.invitationCodes = []
+    const randomSuffix = crypto.randomBytes(4).toString('hex').toUpperCase()
+    const code = customCode ? customCode.trim().toUpperCase() : `AICTE-INV-${new Date().getFullYear()}-${randomSuffix}`
+    const days = typeof expiresInDays === 'number' && !isNaN(expiresInDays) && expiresInDays > 0 ? expiresInDays : 7
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+    const inv: AdminInvitationRecord = {
+      id: `inv_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      code,
+      createdByAdminId,
+      createdDate: new Date().toISOString(),
+      expiresAt,
+      used: false,
+    }
+    db.invitationCodes.unshift(inv)
+    saveDatabase(db)
+    return inv
+  },
+
+  findAdminInvitation(code: string): AdminInvitationRecord | undefined {
+    const db = getDatabase()
+    const clean = (code || '').trim().toUpperCase()
+    return (db.invitationCodes || []).find((i) => i.code.trim().toUpperCase() === clean)
+  },
+
+  markAdminInvitationUsed(code: string, email: string): boolean {
+    const db = getDatabase()
+    const clean = (code || '').trim().toUpperCase()
+    const inv = (db.invitationCodes || []).find((i) => i.code.trim().toUpperCase() === clean)
+    if (!inv || inv.used) return false
+    inv.used = true
+    inv.usedByEmail = email.trim().toLowerCase()
+    inv.usedAt = new Date().toISOString()
+    saveDatabase(db)
+    return true
+  },
+
+  getPendingAdminRequests(): Array<Omit<UserRecord, 'passwordHash' | 'securityAnswerHash'>> {
+    const db = getDatabase()
+    return db.users
+      .filter((u) => u.role === 'platform_admin' && u.status === 'pending_approval')
+      .map((u) => ({
+        id: u.id,
+        fullName: u.fullName,
+        email: u.email,
+        username: u.username,
+        role: u.role,
+        status: u.status,
+        employeeId: u.employeeId,
+        designation: u.designation,
+        securityQuestion: u.securityQuestion,
+        createdAt: u.createdAt,
+      }))
+  },
+
+  approveAdminRequest(userId: string, approvedByAdminId: string): { success: boolean; user?: UserRecord; error?: string } {
+    const db = getDatabase()
+    const user = db.users.find((u) => u.id === userId && u.role === 'platform_admin')
+    if (!user) return { success: false, error: 'Platform administrator request not found.' }
+    if (user.status === 'active' || user.status === 'approved') {
+      return { success: false, error: 'Administrator account is already active.' }
+    }
+    user.status = 'active'
+    user.approvedAt = new Date().toISOString()
+    user.approvedByAdminId = approvedByAdminId
+
+    // Record in audit log
+    db.auditLogs.unshift({
+      id: `aud_${Date.now()}`,
+      actorId: approvedByAdminId,
+      actorName: 'AICTE Super Administrator',
+      actorRole: 'platform_admin',
+      action: 'ADMIN_ACCOUNT_APPROVED',
+      targetType: 'PLATFORM_ADMIN_USER',
+      targetId: user.id,
+      details: `Platform Administrator enrollment approved for ${user.fullName} (${user.email})`,
+      timestamp: new Date().toISOString(),
+    })
+
+    saveDatabase(db)
+    return { success: true, user }
   },
 }

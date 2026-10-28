@@ -1,18 +1,6 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { studentApi } from '@/services/portalApiService'
-import {
-  mockStudentProfile,
-  mockAcademicRecords,
-  mockStudentDocuments,
-  mockVerificationRequests,
-  mockStudentNotifications,
-} from '@/services/studentMockData'
-import {
-  mockSharingConsentRequests,
-  mockConsentAuditTrail,
-  generateAccessToken,
-} from '@/services/consentSharingService'
 import type {
   StudentProfileData,
   AcademicRecordItem,
@@ -67,85 +55,77 @@ interface StudentContextType {
   dismissToast: () => void
 }
 
+const defaultEmptyProfile: StudentProfileData = {
+  id: '',
+  fullName: '',
+  studentEmail: '',
+  institutionName: '',
+  institutionCode: '',
+  department: '',
+  course: '',
+  yearOfStudy: '',
+  registrationNumber: '',
+  apaarId: '',
+  abcId: '',
+  phone: '',
+  dob: '',
+  gender: 'Other',
+  bloodGroup: '',
+  admissionCategory: 'General',
+  digilockerConnected: false,
+  lastSync: '',
+  currentSemester: '',
+  degree: '',
+  admissionYear: '',
+}
+
 const StudentContext = createContext<StudentContextType | undefined>(undefined)
 
 export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile: authProfile } = useAuth()
+
   const [profile, setProfile] = useState<StudentProfileData>(() => {
     if (user && user.role === 'student') {
       return {
-        ...mockStudentProfile,
-        fullName: user.fullName || mockStudentProfile.fullName,
-        studentEmail: user.email || mockStudentProfile.studentEmail,
-        apaarId: user.apaarId || mockStudentProfile.apaarId,
-        institutionName: user.institutionName || mockStudentProfile.institutionName,
+        ...defaultEmptyProfile,
+        fullName: user.fullName || '',
+        studentEmail: user.email || '',
+        apaarId: user.apaarId || '',
+        institutionName: user.institutionName || '',
+        institutionCode: user.institutionCode || '',
         ...(authProfile ? (authProfile as any) : {}),
       }
     }
-    return mockStudentProfile
+    return defaultEmptyProfile
   })
 
   // Keep profile synchronized if authenticated user changes
   useEffect(() => {
     if (user && user.role === 'student') {
-      const nextFullName = user.fullName || mockStudentProfile.fullName
-      const nextEmail = user.email || mockStudentProfile.studentEmail
-      const nextApaarId = user.apaarId || mockStudentProfile.apaarId
-      const nextInst = user.institutionName || mockStudentProfile.institutionName
+      const nextFullName = user.fullName || ''
+      const nextEmail = user.email || ''
+      const nextApaarId = user.apaarId || ''
+      const nextInst = user.institutionName || ''
+      const nextCode = user.institutionCode || ''
 
-      setProfile((prev) => {
-        if (
-          prev.fullName === nextFullName &&
-          prev.studentEmail === nextEmail &&
-          prev.apaarId === nextApaarId &&
-          prev.institutionName === nextInst &&
-          !authProfile
-        ) {
-          return prev
-        }
-        return {
-          ...prev,
-          fullName: nextFullName,
-          studentEmail: nextEmail,
-          apaarId: nextApaarId,
-          institutionName: nextInst,
-          ...(authProfile ? (authProfile as any) : {}),
-        }
-      })
+      setProfile((prev) => ({
+        ...prev,
+        fullName: nextFullName || prev.fullName,
+        studentEmail: nextEmail || prev.studentEmail,
+        apaarId: nextApaarId || prev.apaarId,
+        institutionName: nextInst || prev.institutionName,
+        institutionCode: nextCode || prev.institutionCode,
+        ...(authProfile ? (authProfile as any) : {}),
+      }))
     }
   }, [user, authProfile])
-  const [academicRecords, setAcademicRecords] = useState<AcademicRecordItem[]>(mockAcademicRecords)
-  const [documents, setDocuments] = useState<StudentDocumentItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('apaar_student_documents')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return mockStudentDocuments
-  })
-  const [verificationRequests, setVerificationRequests] = useState<VerificationRequestItem[]>(mockVerificationRequests)
-  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('apaar_student_notifications')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return mockStudentNotifications
-  })
-  const [consentRequests, setConsentRequests] = useState<SharingConsentRequest[]>(mockSharingConsentRequests)
-  const [consentAuditLogs, setConsentAuditLogs] = useState<VerificationAuditTrailItem[]>(mockConsentAuditTrail)
+
+  const [academicRecords, setAcademicRecords] = useState<AcademicRecordItem[]>([])
+  const [documents, setDocuments] = useState<StudentDocumentItem[]>([])
+  const [verificationRequests, setVerificationRequests] = useState<VerificationRequestItem[]>([])
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [consentRequests, setConsentRequests] = useState<SharingConsentRequest[]>([])
+  const [consentAuditLogs, setConsentAuditLogs] = useState<VerificationAuditTrailItem[]>([])
   const [toast, setToast] = useState<StudentToast | null>(null)
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -165,7 +145,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             institutionCode: data.college?.code || data.student.institutionCode || prev.institutionCode,
           }))
         }
-        if (Array.isArray(data.academicRecords) && data.academicRecords.length > 0) {
+        if (Array.isArray(data.academicRecords)) {
           setAcademicRecords(data.academicRecords)
         }
         if (Array.isArray(data.documents)) {
@@ -176,16 +156,26 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
             fileName: d.fileName,
             fileSize: d.fileSize || '1.2 MB',
             uploadDate: d.uploadDate,
-            status: d.reviewStatus === 'accepted_for_verification' ? 'verified' : d.reviewStatus === 'requires_correction' ? 'requires_review' : (d.status || 'pending'),
+            status:
+              d.reviewStatus === 'accepted_for_verification'
+                ? 'verified'
+                : d.reviewStatus === 'requires_correction'
+                ? 'requires_review'
+                : (d.status || 'pending'),
             remarks: d.correctionNotes || d.remarks,
             canRemove: false,
             hashDigest: d.hashDigest || 'SHA256:verified',
-            availability: d.reviewStatus === 'requires_correction' ? 'Correction Required' : d.reviewStatus === 'accepted_for_verification' ? 'Available' : 'Pending Verification',
+            availability:
+              d.reviewStatus === 'requires_correction'
+                ? 'Correction Required'
+                : d.reviewStatus === 'accepted_for_verification'
+                ? 'Available'
+                : 'Pending Verification',
             correctionReason: d.correctionNotes,
           }))
           setDocuments(mappedDocs)
         }
-        if (Array.isArray(data.verificationRequests) && data.verificationRequests.length > 0) {
+        if (Array.isArray(data.verificationRequests)) {
           setVerificationRequests(data.verificationRequests)
         }
         if (Array.isArray(data.notifications)) {
@@ -201,48 +191,16 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     fetchDashboardData()
   }, [fetchDashboardData])
 
-  // Persist documents to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('apaar_student_documents', JSON.stringify(documents))
-    } catch {
-      // ignore
-    }
-  }, [documents])
-
-  // Persist notifications to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('apaar_student_notifications', JSON.stringify(notifications))
-    } catch {
-      // ignore
-    }
-  }, [notifications])
-
   // Listen for real-time updates dispatched by College Management
   useEffect(() => {
     const handleCollegeUpdate = () => {
       fetchDashboardData()
-      try {
-        const savedDocs = localStorage.getItem('apaar_student_documents')
-        if (savedDocs) {
-          setDocuments(JSON.parse(savedDocs))
-        }
-        const savedNotifs = localStorage.getItem('apaar_student_notifications')
-        if (savedNotifs) {
-          setNotifications(JSON.parse(savedNotifs))
-        }
-      } catch {
-        // ignore
-      }
     }
     window.addEventListener('apaar_college_doc_update', handleCollegeUpdate)
     window.addEventListener('apaar:student-data-changed', handleCollegeUpdate)
-    window.addEventListener('storage', handleCollegeUpdate)
     return () => {
       window.removeEventListener('apaar_college_doc_update', handleCollegeUpdate)
       window.removeEventListener('apaar:student-data-changed', handleCollegeUpdate)
-      window.removeEventListener('storage', handleCollegeUpdate)
     }
   }, [fetchDashboardData])
 
@@ -258,7 +216,12 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setToast(null)
   }, [])
 
-  const updateProfile = useCallback((updated: Partial<StudentProfileData>) => {
+  const updateProfile = useCallback(async (updated: Partial<StudentProfileData>) => {
+    try {
+      await studentApi.updateProfile(updated)
+    } catch {
+      // optimistic local update proceeds
+    }
     setProfile((prev) => ({ ...prev, ...updated }))
     showToast('Student profile details updated successfully.', 'success')
   }, [showToast])
@@ -288,19 +251,11 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [documents, showToast])
 
   const updateDocumentByCollege = useCallback((id: string, updates: Partial<StudentDocumentItem>) => {
-    setDocuments((prev) => {
-      const next = prev.map((d) => (d.id === id ? { ...d, ...updates } : d))
-      try {
-        localStorage.setItem('apaar_student_documents', JSON.stringify(next))
-      } catch {
-        // ignore
-      }
-      return next
-    })
+    setDocuments((prev) => prev.map((d) => (d.id === id ? { ...d, ...updates } : d)))
   }, [])
 
   const addVerificationRequest = useCallback((recordTitle: string, purpose: string, notes?: string) => {
-    const refNo = `REQ-2025-${Math.floor(1000 + Math.random() * 9000)}`
+    const refNo = `REQ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`
     const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
     const newReq: VerificationRequestItem = {
       id: `req-${Date.now()}`,
@@ -320,17 +275,7 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           stage: 'College Registrar Office Scrutiny',
           timestamp: 'Queued for institutional review',
           status: 'current',
-          note: notes || 'Awaiting administrative officer allocation.',
-        },
-        {
-          stage: 'DigiLocker NAD Depository Cross-Check',
-          timestamp: 'Pending',
-          status: 'pending',
-        },
-        {
-          stage: 'Cryptographic Credential Seal Attached',
-          timestamp: 'Pending',
-          status: 'pending',
+          note: notes || 'Awaiting administrative officer review.',
         },
       ],
     }
@@ -361,7 +306,9 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         window.dispatchEvent(new CustomEvent('apaar_college_doc_update'))
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to submit verification request to backend:', err)
+      })
 
     return newReq
   }, [showToast])
@@ -381,7 +328,6 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const target = consentRequests.find((r) => r.id === reqId)
     if (!target) return
 
-    const { token, hash } = generateAccessToken(target.referenceCode)
     const nowIso = new Date().toISOString()
 
     setConsentRequests((prev) =>
@@ -391,8 +337,6 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ...r,
           status: 'approved',
           consentGivenAt: nowIso,
-          temporaryAccessToken: token,
-          verificationHash: hash,
         }
       })
     )
@@ -402,31 +346,17 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       timestamp: nowIso,
       eventType: 'consent_granted',
       actor: `${profile.fullName} (Student)`,
-      details: `Student approved data sharing with ${target.requesterName}. Token ${token} generated (Valid until ${target.expiresAt.split('T')[0]}).`,
+      details: `Student approved data sharing with ${target.requesterName}.`,
       ipSubnetHash: 'ip:157.48.***.***',
     }
     setConsentAuditLogs((prev) => [newAudit, ...prev])
 
-    // Student notification
-    const notif: NotificationItem = {
-      id: `SN-${Date.now()}`,
-      title: 'Data Sharing Consent Approved',
-      message: `Temporary verification token generated for ${target.requesterName}. Valid until ${target.expiresAt.split('T')[0]}.`,
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      type: 'security',
-      read: false,
-      actionUrl: '/student/requests',
-    }
-    setNotifications((prev) => [notif, ...prev])
-
-    showToast(`Consent granted to ${target.requesterName}. Verification token active.`, 'success')
+    showToast(`Consent granted to ${target.requesterName}.`, 'success')
   }, [consentRequests, profile.fullName, showToast])
 
   const rejectConsent = useCallback((reqId: string) => {
     const target = consentRequests.find((r) => r.id === reqId)
     if (!target) return
-
-    const nowIso = new Date().toISOString()
 
     setConsentRequests((prev) =>
       prev.map((r) => {
@@ -435,24 +365,12 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     )
 
-    const newAudit: VerificationAuditTrailItem = {
-      id: `AUD-${Date.now()}`,
-      timestamp: nowIso,
-      eventType: 'consent_denied',
-      actor: `${profile.fullName} (Student)`,
-      details: `Student rejected data sharing request from ${target.requesterName}. Zero academic data disclosed.`,
-      ipSubnetHash: 'ip:157.48.***.***',
-    }
-    setConsentAuditLogs((prev) => [newAudit, ...prev])
-
     showToast(`Consent denied for ${target.requesterName}. Record protected.`, 'info')
-  }, [consentRequests, profile.fullName, showToast])
+  }, [consentRequests, showToast])
 
   const revokeConsent = useCallback((reqId: string) => {
     const target = consentRequests.find((r) => r.id === reqId)
     if (!target) return
-
-    const nowIso = new Date().toISOString()
 
     setConsentRequests((prev) =>
       prev.map((r) => {
@@ -465,29 +383,8 @@ export const StudentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     )
 
-    const newAudit: VerificationAuditTrailItem = {
-      id: `AUD-${Date.now()}`,
-      timestamp: nowIso,
-      eventType: 'consent_revoked',
-      actor: `${profile.fullName} (Student)`,
-      details: `Student revoked access previously granted to ${target.requesterName}. Token invalidation broadcasted.`,
-      ipSubnetHash: 'ip:157.48.***.***',
-    }
-    setConsentAuditLogs((prev) => [newAudit, ...prev])
-
-    const notif: NotificationItem = {
-      id: `SN-${Date.now()}`,
-      title: 'Consent Revoked',
-      message: `Access authorization for ${target.requesterName} has been immediately revoked.`,
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      type: 'security',
-      read: false,
-      actionUrl: '/student/requests',
-    }
-    setNotifications((prev) => [notif, ...prev])
-
-    showToast(`Access for ${target.requesterName} revoked immediately. Access token terminated.`, 'info')
-  }, [consentRequests, profile.fullName, showToast])
+    showToast(`Access for ${target.requesterName} revoked immediately.`, 'info')
+  }, [consentRequests, showToast])
 
   const unreadNotificationsCount = useMemo(() => {
     return notifications.filter((n) => !n.read).length
@@ -532,3 +429,5 @@ export const useStudent = () => {
   }
   return context
 }
+
+export const useStudentContext = useStudent

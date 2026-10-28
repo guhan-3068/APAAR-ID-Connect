@@ -219,7 +219,7 @@ const StudentDetailModal: React.FC<{
         </div>
 
         <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
-          ⚠️ <strong>Demonstration Record</strong> — APAAR identifiers remain masked in accordance with DPDP Act privacy safeguards.
+          ⚠️ <strong>Privacy Protected</strong> — APAAR identifiers remain masked in accordance with DPDP Act privacy safeguards.
         </p>
       </div>
 
@@ -251,6 +251,7 @@ export const AdminStudents: React.FC = () => {
   const [searchParams] = useSearchParams()
   const initialStatus = (searchParams.get('status') as AdminStudentRecord['status']) || 'all'
   const [search, setSearch] = useState('')
+  const [searchType, setSearchType] = useState<'all' | 'registrationNumber' | 'apaarId'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | AdminStudentRecord['status']>(initialStatus)
   const [deptFilter, setDeptFilter] = useState('all')
   const [page, setPage] = useState(1)
@@ -285,21 +286,40 @@ export const AdminStudents: React.FC = () => {
   const filtered = useMemo(() => {
     return students.filter((s) => {
       const q = search.toLowerCase().trim()
-      const matchesSearch =
-        !q ||
-        s.fullName.toLowerCase().includes(q) ||
-        s.registrationNumber.toLowerCase().includes(q) ||
-        s.email.toLowerCase().includes(q) ||
-        s.department.toLowerCase().includes(q) ||
-        s.academicYear.toLowerCase().includes(q) ||
-        (s.institutionName && s.institutionName.toLowerCase().includes(q))
+      const cleanDigits = q.replace(/[\s-]+/g, '')
+      const studentApaarDigits = (s.apaarId || '').replace(/[\s-]+/g, '')
+
+      const cleanRegQ = q.replace(/[\s-]+/g, '').toUpperCase()
+      const studentCleanReg = (s.registrationNumber || '').replace(/[\s-]+/g, '').toUpperCase()
+
+      let matchesSearch = true
+      if (q) {
+        if (searchType === 'registrationNumber') {
+          matchesSearch = studentCleanReg === cleanRegQ || (cleanRegQ.length >= 2 && studentCleanReg.includes(cleanRegQ))
+        } else if (searchType === 'apaarId') {
+          matchesSearch = cleanDigits.length >= 2 && studentApaarDigits.includes(cleanDigits)
+        } else {
+          matchesSearch = Boolean(
+            s.fullName.toLowerCase().includes(q) ||
+            s.registrationNumber.toLowerCase().includes(q) ||
+            studentCleanReg === cleanRegQ ||
+            (cleanRegQ.length >= 3 && studentCleanReg.includes(cleanRegQ)) ||
+            (cleanDigits.length >= 3 && studentApaarDigits.includes(cleanDigits)) ||
+            (s.apaarId && s.apaarId.toLowerCase().includes(q)) ||
+            s.email.toLowerCase().includes(q) ||
+            s.department.toLowerCase().includes(q) ||
+            s.academicYear.toLowerCase().includes(q) ||
+            (s.institutionName && s.institutionName.toLowerCase().includes(q))
+          )
+        }
+      }
 
       const matchesStatus = statusFilter === 'all' || s.status === statusFilter
       const matchesDept = deptFilter === 'all' || s.department === deptFilter
 
       return matchesSearch && matchesStatus && matchesDept
     })
-  }, [students, search, statusFilter, deptFilter])
+  }, [students, search, searchType, statusFilter, deptFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE))
   const paginated = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE)
@@ -319,6 +339,7 @@ export const AdminStudents: React.FC = () => {
 
   const resetFilters = () => {
     setSearch('')
+    setSearchType('all')
     setStatusFilter('all')
     setDeptFilter('all')
     setPage(1)
@@ -378,16 +399,33 @@ export const AdminStudents: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         {/* Search & Filters Bar */}
         <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 flex-wrap">
-          <div className="relative flex-1 w-full sm:max-w-md">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              id="student-search"
-              type="search"
-              value={search}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Search by student name, registration no, email, academic year…"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-8 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 placeholder:text-slate-400"
-            />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 w-full sm:max-w-xl">
+            <select
+              value={searchType}
+              onChange={(e) => setSearchType(e.target.value as 'all' | 'registrationNumber' | 'apaarId')}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 shrink-0"
+            >
+              <option value="all">All Fields</option>
+              <option value="registrationNumber">Registration Number</option>
+              <option value="apaarId">APAAR ID</option>
+            </select>
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                id="student-search"
+                type="search"
+                value={search}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder={
+                  searchType === 'registrationNumber'
+                    ? 'Search by registration number...'
+                    : searchType === 'apaarId'
+                    ? 'Search by 12-digit APAAR ID...'
+                    : 'Search by student name, registration no, email…'
+                }
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-8 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 placeholder:text-slate-400 font-mono"
+              />
+            </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
@@ -483,7 +521,11 @@ export const AdminStudents: React.FC = () => {
                       </div>
                       <p className="text-sm font-bold text-slate-800">No Student Records Found</p>
                       <p className="text-xs text-slate-500 text-center mt-1">
-                        No student profiles match your search &ldquo;{search}&rdquo; with the selected filters.
+                        {search
+                          ? 'No student found in your college for this identifier.'
+                          : students.length === 0
+                          ? 'No student records found for this college.'
+                          : 'No student profiles match the selected filters.'}
                       </p>
                       <button
                         onClick={resetFilters}

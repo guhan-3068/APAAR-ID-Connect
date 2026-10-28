@@ -6,7 +6,6 @@ import {
   AlertCircle, 
   UploadCloud, 
   FileBadge, 
-  Info,
   Building2,
   Bell,
   CheckCircle,
@@ -26,30 +25,17 @@ export const StudentOverview: React.FC = () => {
   const { profile, documents, notifications } = useStudent()
 
   // Document Metrics
-  const totalExpectedDocuments = 10
   const submittedDocumentsCount = documents.length
   const verifiedDocumentsCount = documents.filter((d) => d.status === 'verified').length
   const pendingVerificationCount = documents.filter((d) => d.status === 'pending').length
   const actionsRequiredCount = documents.filter((d) => d.status === 'requires_review' || d.status === 'rejected').length
 
+  const totalExpectedDocuments = documents.length > 0 ? documents.length : 0
   const remainingDocuments = Math.max(0, totalExpectedDocuments - verifiedDocumentsCount)
-  const verificationProgressPct = Math.min(100, Math.round((verifiedDocumentsCount / totalExpectedDocuments) * 100))
+  const verificationProgressPct = totalExpectedDocuments > 0 ? Math.min(100, Math.round((verifiedDocumentsCount / totalExpectedDocuments) * 100)) : 0
 
   return (
     <div className="space-y-6">
-      {/* Synthetic Demonstration Disclaimer Banner */}
-      <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200/80 flex items-center justify-between gap-3 text-xs text-purple-900">
-        <div className="flex items-center gap-2.5">
-          <Info size={16} className="text-purple-600 shrink-0" />
-          <span>
-            <strong>Synthetic Demonstration Data:</strong> All academic records, document verification statuses, and institutional announcements are simulated for demonstration.
-          </span>
-        </div>
-        <Badge status="info" variant="subtle" className="hidden sm:inline-flex text-[10px]">
-          Demo Student Portal
-        </Badge>
-      </div>
-
       {/* 1. Student Information Header - Large & Bold Font */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-7 shadow-xs relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-48 bg-gradient-to-l from-blue-100/60 via-purple-50/40 to-transparent pointer-events-none" />
@@ -252,43 +238,50 @@ export const StudentOverview: React.FC = () => {
         </CardHeader>
 
         <div className="divide-y divide-slate-100">
-          {notifications.slice(0, 4).map((notif) => {
-            const isCollegeAnnouncement = notif.title.toLowerCase().includes('announcement') || notif.title.toLowerCase().includes('placement') || notif.type === 'update'
-            return (
-              <div key={notif.id} className="py-3.5 flex items-start justify-between gap-4 first:pt-0 last:pb-0 hover:bg-slate-50/60 p-2 rounded-xl transition-colors">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-sm text-slate-900">{notif.title}</span>
-                    {isCollegeAnnouncement ? (
-                      <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
-                        College Announcement
+          {notifications.length > 0 ? (
+            notifications.slice(0, 4).map((notif) => {
+              const isCollegeAnnouncement = notif.title.toLowerCase().includes('announcement') || notif.title.toLowerCase().includes('placement') || notif.type === 'update'
+              return (
+                <div key={notif.id} className="py-3.5 flex items-start justify-between gap-4 first:pt-0 last:pb-0 hover:bg-slate-50/60 p-2 rounded-xl transition-colors">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-sm text-slate-900">{notif.title}</span>
+                      {isCollegeAnnouncement ? (
+                        <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
+                          College Announcement
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                          Student Update
+                        </span>
+                      )}
+                      {!notif.read && (
+                        <span className="h-2 w-2 rounded-full bg-blue-600" title="Unread" />
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
+                      {notif.message}
+                    </p>
+                    <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1 font-medium">
+                        <Calendar size={12} /> {notif.date}
                       </span>
-                    ) : (
-                      <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                        Student Update
-                      </span>
-                    )}
-                    {!notif.read && (
-                      <span className="h-2 w-2 rounded-full bg-blue-600" title="Unread" />
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed max-w-3xl">
-                    {notif.message}
-                  </p>
-                  <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1 font-medium">
-                      <Calendar size={12} /> {notif.date}
-                    </span>
-                    {notif.actionUrl && (
-                      <Link to={notif.actionUrl} className="font-semibold text-blue-600 hover:underline">
-                        Take Action →
-                      </Link>
-                    )}
+                      {notif.actionUrl && (
+                        <Link to={notif.actionUrl} className="font-semibold text-blue-600 hover:underline">
+                          Take Action →
+                        </Link>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })
+          ) : (
+            <div className="py-8 text-center text-slate-400 text-xs">
+              <Bell size={28} className="mx-auto text-slate-300 mb-2" />
+              <p className="font-medium text-slate-600">No notifications yet.</p>
+            </div>
+          )}
         </div>
       </Card>
     </div>

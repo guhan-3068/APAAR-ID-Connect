@@ -99,6 +99,7 @@ interface WorkQueueModalProps {
 }
 
 const WorkQueueModal: React.FC<WorkQueueModalProps> = ({ doc, onClose, onUpdate }) => {
+  const { adminProfile } = useAdmin()
   const [activeTab, setActiveTab] = useState<'details' | 'correct' | 'reason'>('details')
   const [correctedFileName, setCorrectedFileName] = useState(`corrected_${doc.fileName}`)
   const [reviewNotes, setReviewNotes] = useState(
@@ -380,7 +381,7 @@ const WorkQueueModal: React.FC<WorkQueueModalProps> = ({ doc, onClose, onUpdate 
         {/* Modal Footer */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
           <span className="text-slate-500 text-[11px]">
-            National Institute of Engineering & Technology • AICTE Code: AICTE-1-4928172
+            {adminProfile.institutionName} • AICTE Code: {adminProfile.institutionCode}
           </span>
           <button
             onClick={onClose}

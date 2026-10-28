@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { 
   User, 
   Mail, 
@@ -20,7 +20,8 @@ import {
   FileBadge,
   GraduationCap,
   Hash,
-  Award
+  Award,
+  AlertCircle
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
 import { Badge } from '@/components/common/Badge'
@@ -28,6 +29,7 @@ import { Button } from '@/components/common/Button'
 import { Input } from '@/components/common/Input'
 import { useStudent } from '@/context/StudentContext'
 import { formatApaarId } from '@/utils/formatters'
+import { authService } from '@/services/authService'
 
 export const StudentProfile: React.FC = () => {
   const { profile, updateProfile } = useStudent()
@@ -44,7 +46,23 @@ export const StudentProfile: React.FC = () => {
     phone: profile.phone,
     bloodGroup: profile.bloodGroup,
     admissionCategory: profile.admissionCategory,
+    department: profile.department || '',
   })
+
+  const [departmentsList, setDepartmentsList] = useState<string[]>([])
+
+  useEffect(() => {
+    if (profile.institutionCode || (profile as any).collegeId) {
+      authService
+        .getCollegeDepartments((profile as any).collegeId || profile.institutionCode)
+        .then((depts) => {
+          if (Array.isArray(depts) && depts.length > 0) {
+            setDepartmentsList(depts)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [profile.institutionCode, (profile as any).collegeId])
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
@@ -60,6 +78,7 @@ export const StudentProfile: React.FC = () => {
       phone: profile.phone,
       bloodGroup: profile.bloodGroup,
       admissionCategory: profile.admissionCategory,
+      department: profile.department || '',
     })
     setFormErrors({})
     setSaveSuccess(false)
@@ -93,19 +112,20 @@ export const StudentProfile: React.FC = () => {
 
     setIsSaving(true)
 
-    // Simulate saving changes
+    // Save changes to backend database and context state
+    updateProfile({
+      fullName: editForm.fullName,
+      phone: editForm.phone,
+      bloodGroup: editForm.bloodGroup,
+      admissionCategory: editForm.admissionCategory,
+      department: editForm.department || profile.department,
+    })
     setTimeout(() => {
-      updateProfile({
-        fullName: editForm.fullName,
-        phone: editForm.phone,
-        bloodGroup: editForm.bloodGroup,
-        admissionCategory: editForm.admissionCategory,
-      })
       setIsSaving(false)
       setIsEditing(false)
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 5000)
-    }, 500)
+    }, 400)
   }
 
   // Masked APAAR ID: show last 4 digits only when masked
@@ -135,6 +155,26 @@ export const StudentProfile: React.FC = () => {
           Authenticated Record
         </Badge>
       </div>
+
+      {/* Missing department alert banner */}
+      {(!profile.department || profile.department === 'Not Assigned' || profile.department === 'Unassigned') && !isEditing && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle size={18} className="text-amber-600 shrink-0" />
+            <span>
+              <strong>Department Not Assigned:</strong> Please complete your department information to ensure your college can locate your record and attach official marksheets.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleStartEdit}
+            className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100 text-xs shrink-0"
+          >
+            Complete Department
+          </Button>
+        </div>
+      )}
 
       {/* Success / Error Feedback Alerts */}
       {saveSuccess && (
@@ -319,11 +359,41 @@ export const StudentProfile: React.FC = () => {
                   onChange={(e) => setEditForm({ ...editForm, admissionCategory: e.target.value })}
                   placeholder="e.g. Merit (State Entrance)"
                 />
+
+                {/* Department Completion Field */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Department {(!profile.department || profile.department === 'Not Assigned') && <span className="text-rose-500">*</span>}
+                  </label>
+                  {departmentsList.length > 0 ? (
+                    <select
+                      value={editForm.department}
+                      onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    >
+                      <option value="">-- Select Department --</option>
+                      {departmentsList.map((dept) => (
+                        <option key={dept} value={dept}>
+                          {dept}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={editForm.department}
+                      onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+                      placeholder="Enter department name"
+                    />
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Synchronized with your college's official academic department configuration.
+                  </p>
+                </div>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 space-y-1">
                 <p className="font-semibold text-slate-700">🔒 Official Records Notice:</p>
-                <p>Register Number, Degree, Department, Admission Year, and College Name are verified with institutional records and cannot be altered by student self-service.</p>
+                <p>Register Number, Degree, Admission Year, and College Name are verified with institutional records and cannot be altered by student self-service.</p>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">

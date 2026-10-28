@@ -18,7 +18,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from '@/components/commo
 import { Badge } from '@/components/common/Badge'
 import { Button } from '@/components/common/Button'
 import { Input } from '@/components/common/Input'
-import { mockStudents } from '@/services/mockData'
+import { publicApi } from '@/services/portalApiService'
 import { mockSharingConsentRequests } from '@/services/consentSharingService'
 import { formatApaarId, isValidApaarId } from '@/utils/formatters'
 import type { StudentRecord, SharingConsentRequest } from '@/types'
@@ -38,7 +38,7 @@ export const Verification: React.FC = () => {
   const [searched, setSearched] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
-  const performApaarVerification = (rawId: string) => {
+  const performApaarVerification = async (rawId: string) => {
     const cleaned = rawId.replace(/\D/g, '')
     if (!isValidApaarId(cleaned)) {
       setErrorMessage('APAAR ID must contain exactly 12 digits')
@@ -51,11 +51,35 @@ export const Verification: React.FC = () => {
     setSearched(true)
     setTokenResult(null)
 
-    setTimeout(() => {
-      const match = mockStudents.find((s) => s.apaarId === cleaned)
-      setResult(match || null)
+    try {
+      const res = await publicApi.verifyApaar(rawId)
+      if (res && res.verified && res.record) {
+        setResult({
+          id: res.record.registrationNumber,
+          apaarId: cleaned,
+          fullName: res.record.fullName,
+          registrationNumber: res.record.registrationNumber,
+          course: res.record.course,
+          branch: res.record.department,
+          institutionCode: `${res.record.institutionName} (${res.record.institutionCode})`,
+          currentSemester: 'Active',
+          status: (res.record.status as any) || 'verified',
+          digilockerSynced: true,
+          dob: 'Redacted (DPDPA 2023)',
+          gender: 'Verified',
+          enrollmentYear: 2024,
+          lastVerifiedAt: res.record.lastVerifiedAt,
+        } as any)
+      } else {
+        setResult(null)
+        setErrorMessage(res?.message || `No verified academic registry record found for APAAR ID: ${rawId}`)
+      }
+    } catch (err: any) {
+      setResult(null)
+      setErrorMessage(err.message || 'Database connection error during verification. Please try again.')
+    } finally {
       setIsVerifying(false)
-    }, 500)
+    }
   }
 
   const performTokenVerification = (query: string) => {
@@ -218,45 +242,6 @@ export const Verification: React.FC = () => {
                   Inspect Token
                 </Button>
               </div>
-            </div>
-          )}
-
-          {/* Quick Demo Pre-fills */}
-          {searchMode === 'apaar' ? (
-            <div className="flex items-center gap-2 text-xs text-slate-400 pt-1 flex-wrap">
-              <span>Sample IDs:</span>
-              {mockStudents.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    setInputVal(formatApaarId(s.apaarId))
-                    setSearchParams({ id: s.apaarId })
-                    performApaarVerification(s.apaarId)
-                  }}
-                  className="font-mono text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  {formatApaarId(s.apaarId)}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-xs text-slate-400 pt-1 flex-wrap">
-              <span>Sample Tokens:</span>
-              {mockSharingConsentRequests.slice(0, 2).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setTokenVal(item.referenceCode)
-                    setSearchParams({ token: item.referenceCode })
-                    performTokenVerification(item.referenceCode)
-                  }}
-                  className="font-mono text-purple-700 hover:underline"
-                >
-                  {item.referenceCode} ({item.requesterName.split(' ')[0]})
-                </button>
-              ))}
             </div>
           )}
         </form>

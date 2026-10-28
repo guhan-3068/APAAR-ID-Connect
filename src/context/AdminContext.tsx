@@ -1,15 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import {
-  mockAdminStudents,
-  mockAdminAcademicRecords,
-  mockAdminDocuments,
-  mockAdminVerificationRequests,
-  mockDataQualityIssues,
-  mockAuditLog,
-  mockAdminProfile,
-  mockAdminNotifications,
-} from '@/services/adminMockData'
 import { collegeApi, type StudentSearchResult } from '@/services/portalApiService'
 import type {
   AdminStudentRecord,
@@ -19,6 +9,17 @@ import type {
   DataQualityIssueItem,
   AuditLogItem,
 } from '@/types'
+
+export interface AdminProfile {
+  name: string
+  role: string
+  institutionName: string
+  institutionCode: string
+  email: string
+  city?: string
+  state?: string
+  type?: 'Autonomous' | 'Affiliated' | 'Constituent' | 'University Department'
+}
 
 export interface DuplicateGroup {
   field: 'apaarId' | 'registrationNumber' | 'email' | 'phone'
@@ -51,7 +52,7 @@ interface AdminContextType {
   verificationRequests: AdminVerificationRequestItem[]
   dataQualityIssues: DataQualityIssueItem[]
   auditLog: AuditLogItem[]
-  adminProfile: typeof mockAdminProfile
+  adminProfile: AdminProfile
 
   // Metrics
   stats: {
@@ -112,7 +113,9 @@ interface AdminContextType {
 
   // Real Database Actions
   uploadStudentDocument: (data: {
-    studentRegistrationNumber: string
+    studentRegistrationNumber?: string
+    studentId?: string
+    apaarId?: string
     documentType: string
     title: string
     fileName: string
@@ -128,7 +131,7 @@ interface AdminContextType {
       examination?: string
     }
   }) => Promise<{ success: boolean; message: string; document: AdminDocumentReviewItem; academicRecord?: AdminAcademicRecord }>
-  searchStudents: (query: string) => Promise<StudentSearchResult[]>
+  searchStudents: (query: string, searchType?: 'all' | 'registrationNumber' | 'apaarId') => Promise<StudentSearchResult[]>
   refreshCollegeData: () => Promise<void>
 }
 
@@ -136,33 +139,33 @@ const AdminContext = createContext<AdminContextType | undefined>(undefined)
 
 export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth()
-  const adminProfile = useMemo(() => {
-    if (user && user.role === 'college_admin') {
-      return {
-        ...mockAdminProfile,
-        name: user.fullName || mockAdminProfile.name,
-        email: user.email || mockAdminProfile.email,
-        institutionName: user.institutionName || mockAdminProfile.institutionName,
-        institutionCode: user.institutionCode || mockAdminProfile.institutionCode,
-      }
+  const adminProfile = useMemo<AdminProfile>(() => {
+    return {
+      name: user?.fullName || 'College Administrator',
+      role: 'Registrar',
+      institutionName: user?.institutionName || 'Institutional Campus',
+      institutionCode: user?.institutionCode || 'AICTE-CAMPUS',
+      email: user?.email || '',
+      city: 'Administrative HQ',
+      state: 'All India',
+      type: 'Autonomous',
     }
-    return mockAdminProfile
   }, [user])
 
-  const [students, setStudents] = useState<AdminStudentRecord[]>(mockAdminStudents)
-  const [academicRecords, setAcademicRecords] = useState<AdminAcademicRecord[]>(mockAdminAcademicRecords)
-  const [documents, setDocuments] = useState<AdminDocumentReviewItem[]>(mockAdminDocuments)
-  const [verificationRequests, setVerificationRequests] = useState<AdminVerificationRequestItem[]>(mockAdminVerificationRequests)
-  const [dataQualityIssues, setDataQualityIssues] = useState<DataQualityIssueItem[]>(mockDataQualityIssues)
-  const [auditLog, setAuditLog] = useState<AuditLogItem[]>(mockAuditLog)
-  const [notifications, setNotifications] = useState<AdminNotification[]>(mockAdminNotifications)
+  const [students, setStudents] = useState<AdminStudentRecord[]>([])
+  const [academicRecords, setAcademicRecords] = useState<AdminAcademicRecord[]>([])
+  const [documents, setDocuments] = useState<AdminDocumentReviewItem[]>([])
+  const [verificationRequests, setVerificationRequests] = useState<AdminVerificationRequestItem[]>([])
+  const [dataQualityIssues, setDataQualityIssues] = useState<DataQualityIssueItem[]>([])
+  const [auditLog, setAuditLog] = useState<AuditLogItem[]>([])
+  const [notifications, setNotifications] = useState<AdminNotification[]>([])
   const [toast, setToast] = useState<AdminToast | null>(null)
 
   const fetchCollegeData = useCallback(async () => {
     try {
       const res = await collegeApi.getDashboard()
       if (res && res.success) {
-        if (Array.isArray(res.students) && res.students.length > 0) {
+        if (Array.isArray(res.students)) {
           const mappedStudents: AdminStudentRecord[] = res.students.map((s: any) => ({
             id: s.id,
             fullName: s.fullName,
@@ -171,7 +174,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             abcId: s.abcId || (s.apaarId ? `ABC-${s.apaarId.slice(-8)}` : 'ABC-2024-PENDING'),
             email: s.email,
             phone: s.phone || '',
-            institutionName: res.college?.name || user?.institutionName || 'National Institute of Engineering & Technology',
+            institutionName: res.college?.name || user?.institutionName || 'Institutional Campus',
             department: s.department,
             programme: s.course,
             academicYear: s.yearOfStudy,
@@ -423,7 +426,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               stage: 'Final Verification Decision',
               timestamp: formattedDate,
               status: 'completed',
-              actor: `${mockAdminProfile.name} (${mockAdminProfile.role})`,
+              actor: `${adminProfile.name} (${adminProfile.role})`,
               note: reviewerNotes || 'Approved. Student academic record confirmed and synced with APAAR registry.',
             }
           } else {
@@ -431,7 +434,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               stage: 'Final Verification Decision',
               timestamp: formattedDate,
               status: 'completed',
-              actor: `${mockAdminProfile.name} (${mockAdminProfile.role})`,
+              actor: `${adminProfile.name} (${adminProfile.role})`,
               note: reviewerNotes || 'Approved. Student academic record confirmed and synced with APAAR registry.',
             })
           }
@@ -474,7 +477,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const auditEntry: AuditLogItem = {
         id: `AL-${Date.now()}`,
         action: 'Verification Request Approved',
-        adminAccount: `${mockAdminProfile.email} (${mockAdminProfile.name})`,
+        adminAccount: `${adminProfile.email} (${adminProfile.name})`,
         affectedRecord: `${targetReq.referenceNo} — ${targetReq.studentName} (${targetReq.academicRecordType})`,
         timestamp: now.toISOString(),
         previousStatus: prevStatus,
@@ -529,7 +532,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               stage: 'Verification Rejected',
               timestamp: formattedDate,
               status: 'completed',
-              actor: `${mockAdminProfile.name} (${mockAdminProfile.role})`,
+              actor: `${adminProfile.name} (${adminProfile.role})`,
               note: `Rejected: ${trimmedReason}`,
             }
           } else {
@@ -537,7 +540,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               stage: 'Verification Rejected',
               timestamp: formattedDate,
               status: 'completed',
-              actor: `${mockAdminProfile.name} (${mockAdminProfile.role})`,
+              actor: `${adminProfile.name} (${adminProfile.role})`,
               note: `Rejected: ${trimmedReason}`,
             })
           }
@@ -580,7 +583,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const auditEntry: AuditLogItem = {
         id: `AL-${Date.now()}`,
         action: 'Verification Request Rejected',
-        adminAccount: `${mockAdminProfile.email} (${mockAdminProfile.name})`,
+        adminAccount: `${adminProfile.email} (${adminProfile.name})`,
         affectedRecord: `${targetReq.referenceNo} — ${targetReq.studentName} (${targetReq.academicRecordType})`,
         timestamp: now.toISOString(),
         previousStatus: prevStatus,
@@ -624,7 +627,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const auditEntry: AuditLogItem = {
         id: `AL-${Date.now()}`,
         action: 'Student Verification Status Updated',
-        adminAccount: `${mockAdminProfile.email} (${mockAdminProfile.name})`,
+        adminAccount: `${adminProfile.email} (${adminProfile.name})`,
         affectedRecord: `${student.id} — ${student.fullName} (${student.registrationNumber})`,
         timestamp: new Date().toISOString(),
         previousStatus: prevStatus,
@@ -657,7 +660,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const auditEntry: AuditLogItem = {
         id: `AL-${Date.now()}`,
         action: 'Data Quality Issue Resolved',
-        adminAccount: `${mockAdminProfile.email} (${mockAdminProfile.name})`,
+        adminAccount: `${adminProfile.email} (${adminProfile.name})`,
         affectedRecord: `${issue.id} — ${issue.studentName} (${issue.issueType})`,
         timestamp: new Date().toISOString(),
         previousStatus: prevStatus,
@@ -817,7 +820,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const uploadStudentDocument = useCallback(
     async (data: {
-      studentRegistrationNumber: string
+      studentRegistrationNumber?: string
+      studentId?: string
+      apaarId?: string
       documentType: string
       title: string
       fileName: string
@@ -842,11 +847,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       )
       window.dispatchEvent(
         new CustomEvent('apaar:student-data-changed', {
-          detail: { action: 'document_uploaded', regNo: data.studentRegistrationNumber },
+          detail: { action: 'document_uploaded', regNo: data.studentRegistrationNumber, studentId: data.studentId },
         })
       )
+      const targetIdentifier = data.studentRegistrationNumber || (data.apaarId ? `APAAR ${data.apaarId.slice(-4)}` : 'student')
       showToast(
-        `Document "${data.title}" successfully recorded for registration number ${data.studentRegistrationNumber}.`,
+        `Document "${data.title}" successfully recorded for ${targetIdentifier}.`,
         'success'
       )
       return result
@@ -854,8 +860,8 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [fetchCollegeData, showToast]
   )
 
-  const searchStudents = useCallback(async (query: string) => {
-    return collegeApi.searchStudents(query)
+  const searchStudents = useCallback(async (query: string, searchType?: 'all' | 'registrationNumber' | 'apaarId') => {
+    return collegeApi.searchStudents(query, searchType)
   }, [])
 
   // Computed summary metrics

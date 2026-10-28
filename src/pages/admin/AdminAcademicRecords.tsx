@@ -89,7 +89,7 @@ const RecordDetailModal: React.FC<{ record: AdminAcademicRecord; onClose: () => 
 )
 
 export const AdminAcademicRecords: React.FC = () => {
-  const { academicRecords, showToast } = useAdmin()
+  const { academicRecords, adminProfile, showToast } = useAdmin()
   const [searchParams] = useSearchParams()
   const initialParam = searchParams.get('status')
   const [search, setSearch] = useState('')
@@ -112,7 +112,8 @@ export const AdminAcademicRecords: React.FC = () => {
 
   const handleExportCsv = () => {
     const csv = academicRecordService.exportCsv()
-    downloadCsv(csv, `NIET_Academic_Records_${new Date().toISOString().split('T')[0]}.csv`)
+    const prefix = (adminProfile?.institutionCode || 'College').replace(/[^a-zA-Z0-9_-]/g, '_')
+    downloadCsv(csv, `${prefix}_Academic_Records_${new Date().toISOString().split('T')[0]}.csv`)
     showToast('Academic examination records exported as CSV.', 'success')
   }
 
@@ -216,7 +217,9 @@ export const AdminAcademicRecords: React.FC = () => {
             <tbody className="divide-y divide-slate-50">
               {paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400 text-sm">No records match the current filters.</td>
+                  <td colSpan={7} className="text-center py-10 text-slate-400 text-sm">
+                    {academicRecords.length === 0 ? 'No academic records have been uploaded yet.' : 'No records match the current filters.'}
+                  </td>
                 </tr>
               ) : (
                 paginated.map((r) => (

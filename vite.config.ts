@@ -36,6 +36,12 @@ function authBackendPlugin(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    port: 5173,
+    watch: {
+      ignored: ['**/node_modules/**', '**/server/data/**', '**/.git/**', '**/dist/**'],
+    },
+  },
   plugins: [
     authBackendPlugin(),
     react(),

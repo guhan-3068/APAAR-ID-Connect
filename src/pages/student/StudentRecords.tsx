@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { 
   GraduationCap, 
   Search, 
-  Filter, 
   Eye, 
   Download, 
   ShieldCheck, 
@@ -295,8 +294,10 @@ Generated on: ${new Date().toLocaleDateString('en-GB')} via APAAR CONNECT AI
               ) : (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                    <Filter className="mx-auto h-6 w-6 text-slate-300 mb-2" />
-                    No academic records match your filter criteria.
+                    <GraduationCap className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                    {academicRecords.length === 0
+                      ? 'No academic records have been published for your account yet.'
+                      : 'No academic records match your filter criteria.'}
                   </td>
                 </tr>
               )}

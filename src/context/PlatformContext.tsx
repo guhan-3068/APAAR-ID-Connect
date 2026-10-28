@@ -1,9 +1,6 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react'
 import {
-  mockPlatformInstitutions,
-  mockPlatformStats,
   mockMonitoringServices,
-  mockPlatformLogs,
 } from '@/services/platformMockData'
 import {
   aicteAdminService,
@@ -64,60 +61,90 @@ interface PlatformContextType {
 const PlatformContext = createContext<PlatformContextType | undefined>(undefined)
 
 export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [institutions, setInstitutions] = useState<PlatformInstitution[]>(mockPlatformInstitutions)
+  const [institutions, setInstitutions] = useState<PlatformInstitution[]>([])
+  const [backendStats, setBackendStats] = useState<any>(null)
   const [monitoringServices] = useState<PlatformMonitoringService[]>(mockMonitoringServices)
-  const [platformLogs, setPlatformLogs] = useState<PlatformLogEvent[]>(mockPlatformLogs)
+  const [platformLogs, setPlatformLogs] = useState<PlatformLogEvent[]>([])
   const [toast, setToast] = useState<PlatformToast | null>(null)
 
-  // AICTE Admin state
-  const [aicteInstitutions, setAicteInstitutions] = useState<AICTEInstitutionRecord[]>(() =>
-    aicteAdminService.getInstitutions()
-  )
-  const [aicteStudents, setAicteStudents] = useState<AICTEStudentRecord[]>(() =>
-    aicteAdminService.getStudents()
-  )
+  // AICTE Admin state initialized empty
+  const [aicteInstitutions, setAicteInstitutions] = useState<AICTEInstitutionRecord[]>([])
+  const [aicteStudents, setAicteStudents] = useState<AICTEStudentRecord[]>([])
 
   const fetchPlatformData = useCallback(async () => {
     try {
       const res = await platformApi.getDashboard()
       if (res && res.success) {
-        if (Array.isArray(res.colleges) && res.colleges.length > 0) {
-          const mapped: PlatformInstitution[] = res.colleges.map((c: any) => ({
-            id: c.id,
-            aicteCode: c.code,
-            name: c.name,
-            type: (c.type as any) || 'Autonomous',
-            state: c.state,
-            district: c.district,
-            city: c.district,
-            registrarName: c.contactEmail?.split('@')[0] || 'Registrar Office',
-            registrarEmail: c.contactEmail,
-            phone: '+91-80-23456789',
-            status: c.status === 'approved' ? 'active' : (c.status as any) || 'active',
-            onboardingDate: c.createdAt?.split('T')[0] || '2024-01-15',
-            totalEnrolled: 420,
-            verifiedCount: 395,
-            complianceScore: 96,
-            naacAccreditation: 'A++',
-          }))
-          setInstitutions(mapped)
-        }
+        const mapped: PlatformInstitution[] = Array.isArray(res.colleges)
+          ? res.colleges.map((c: any) => ({
+              id: c.id,
+              aicteCode: c.code,
+              name: c.name,
+              type: (c.type as any) || 'Affiliated',
+              state: c.state || 'State',
+              district: c.district || 'District',
+              city: c.district || 'City',
+              registrarName: c.contactEmail?.split('@')[0] || 'Registrar Office',
+              registrarEmail: c.contactEmail,
+              phone: c.contactPhone || '+91-00-00000000',
+              status: c.status === 'approved' ? 'active' : (c.status as any) || 'active',
+              onboardingDate: c.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+              totalEnrolled: c.totalStudents || 0,
+              verifiedCount: c.verifiedStudents || 0,
+              complianceScore: 100,
+              naacAccreditation: 'A',
+            }))
+          : []
+        setInstitutions(mapped)
+        setBackendStats(res.stats || null)
 
-        if (Array.isArray(res.recentAuditLogs) && res.recentAuditLogs.length > 0) {
+        // Sync with AICTE governance state
+        const aicteMapped: AICTEInstitutionRecord[] = mapped.map((m) => ({
+          id: m.id,
+          aicteCode: m.aicteCode,
+          name: m.name,
+          state: m.state,
+          district: m.district,
+          city: m.city,
+          type: (m.type as any) || 'Autonomous',
+          registrarName: m.registrarName,
+          registrarEmail: m.registrarEmail,
+          phone: m.phone,
+          approvedCourses: [],
+          totalApprovedIntake: 0,
+          totalReportedEnrolment: m.totalEnrolled,
+          latestSubmissionDate: m.onboardingDate,
+          submissionStatus: m.status === 'active' ? 'Completed' : 'Submitted',
+          unresolvedIssuesCount: 0,
+          naacAccreditation: m.naacAccreditation,
+          complianceScore: m.complianceScore,
+          submissionHistory: [],
+          correctionRequests: [],
+        }))
+        aicteAdminService.setInstitutionsFromDb(aicteMapped)
+        setAicteInstitutions(aicteMapped)
+
+        if (Array.isArray(res.recentAuditLogs)) {
           const mappedLogs: PlatformLogEvent[] = res.recentAuditLogs.map((l: any) => ({
             id: l.id,
             timestamp: l.timestamp,
-            actor: `${l.actorName} (${l.actorRole})`,
+            actor: l.actorName ? `${l.actorName} (${l.actorRole || 'System'})` : 'System Audit',
             action: l.action,
-            target: l.targetType,
+            target: l.targetType || 'Database',
             severity: 'info',
             details: l.details,
           }))
           setPlatformLogs(mappedLogs)
+        } else {
+          setPlatformLogs([])
         }
+      } else {
+        setInstitutions([])
+        setPlatformLogs([])
       }
     } catch {
-      // Retain mock fallback
+      setInstitutions([])
+      setPlatformLogs([])
     }
   }, [])
 
@@ -243,23 +270,23 @@ export const PlatformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   )
 
   const stats = useMemo<PlatformMetricStats>(() => {
-    const totalEnrolledSum = institutions.reduce((acc, curr) => acc + curr.totalEnrolled, 0)
-    const verifiedSum = institutions.reduce((acc, curr) => acc + curr.verifiedCount, 0)
+    const totalEnrolledSum = institutions.reduce((acc, curr) => acc + (curr.totalEnrolled || 0), 0)
+    const verifiedSum = institutions.reduce((acc, curr) => acc + (curr.verifiedCount || 0), 0)
     const activeCount = institutions.filter((i) => i.status === 'active').length
     const suspendedCount = institutions.filter((i) => i.status === 'suspended').length
 
     return {
-      totalStudents: totalEnrolledSum,
-      totalInstitutions: institutions.length,
-      totalVerificationRequests: mockPlatformStats.totalVerificationRequests,
-      verifiedRecords: verifiedSum,
-      pendingRecords: mockPlatformStats.pendingRecords,
-      rejectedRecords: mockPlatformStats.rejectedRecords,
-      incompleteRecords: mockPlatformStats.incompleteRecords,
+      totalStudents: backendStats?.totalStudents ?? totalEnrolledSum,
+      totalInstitutions: backendStats?.totalColleges ?? institutions.length,
+      totalVerificationRequests: backendStats?.totalVerificationRequests ?? 0,
+      verifiedRecords: backendStats?.verifiedRecords ?? verifiedSum,
+      pendingRecords: backendStats?.pendingVerificationRequests ?? 0,
+      rejectedRecords: backendStats?.rejectedRequests ?? 0,
+      incompleteRecords: 0,
       activeInstitutions: activeCount,
       suspendedInstitutions: suspendedCount,
     }
-  }, [institutions])
+  }, [institutions, backendStats])
 
   return (
     <PlatformContext.Provider

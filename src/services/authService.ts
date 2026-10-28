@@ -7,10 +7,14 @@ export interface AuthUser {
   id: string
   fullName: string
   email: string
+  username?: string
   role: 'student' | 'college_admin' | 'platform_admin'
   apaarId?: string
   institutionName?: string
   institutionCode?: string
+  employeeId?: string
+  designation?: string
+  status?: string
 }
 
 export interface StudentProfileData {
@@ -35,18 +39,28 @@ export interface StudentProfileData {
 
 export interface LoginResponse {
   success: boolean
-  token: string
-  user: AuthUser
+  token?: string
+  user?: AuthUser
   profile?: StudentProfileData
+  requireSecurityChallenge?: boolean
+  question?: string
+  challengeToken?: string
   error?: string
+  pendingApproval?: boolean
 }
 
 export interface RegisterStudentData {
   fullName: string
   email: string
   institutionName: string
+  collegeId?: string
+  collegeCode?: string
   apaarId: string
   password: string
+  registrationNumber?: string
+  department?: string
+  course?: string
+  academicYear?: string
 }
 
 export interface RegisterCollegeData {
@@ -55,6 +69,19 @@ export interface RegisterCollegeData {
   institutionName: string
   aicteCode: string
   password: string
+}
+
+export interface RegisterPlatformAdminData {
+  fullName: string
+  email: string
+  username: string
+  employeeId: string
+  designation: string
+  password: string
+  confirmPassword?: string
+  securityQuestion: string
+  securityAnswer: string
+  invitationCode?: string
 }
 
 const TOKEN_KEY = 'apaar_auth_jwt'
@@ -130,11 +157,31 @@ class AuthService {
   public async login(
     identifier: string,
     password: string,
-    portal?: 'student' | 'college_admin' | 'platform_admin'
+    portal?: 'student' | 'college_admin' | 'platform_admin',
+    securityAnswer?: string
   ): Promise<LoginResponse> {
     const result = await this.request<LoginResponse>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ identifier, password, portal }),
+      body: JSON.stringify({ identifier, password, portal, securityAnswer }),
+    })
+
+    if (result.token) {
+      this.setToken(result.token)
+    }
+
+    return result
+  }
+
+  /**
+   * Verify Secondary Security Question Challenge for Platform Administrators
+   */
+  public async verifySecurityChallenge(
+    challengeToken: string,
+    securityAnswer: string
+  ): Promise<LoginResponse> {
+    const result = await this.request<LoginResponse>('/api/auth/verify-security-challenge', {
+      method: 'POST',
+      body: JSON.stringify({ challengeToken, securityAnswer }),
     })
 
     if (result.token) {
@@ -174,6 +221,86 @@ class AuthService {
     }
 
     return result
+  }
+
+  /**
+   * Enroll Platform Administrator (Privileged Enrollment with Invitation Code or Approval Request)
+   */
+  public async registerPlatformAdmin(
+    data: RegisterPlatformAdminData
+  ): Promise<{
+    success: boolean
+    activated: boolean
+    message: string
+    pendingApproval?: boolean
+    token?: string
+    user?: AuthUser
+  }> {
+    const result = await this.request<{
+      success: boolean
+      activated: boolean
+      message: string
+      pendingApproval?: boolean
+      token?: string
+      user?: AuthUser
+    }>('/api/auth/register/platform-admin', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+
+    if (result.token) {
+      this.setToken(result.token)
+    }
+
+    return result
+  }
+
+  /**
+   * Retrieve authoritative list of registered institutions
+   */
+  public async getColleges(): Promise<Array<{ id: string; code: string; name: string; state?: string }>> {
+    try {
+      const res = await this.request<{
+        success: boolean
+        colleges: Array<{ id: string; code: string; name: string; state?: string }>
+      }>('/api/colleges', {
+        method: 'GET',
+      })
+      return res.colleges || []
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Retrieve configured departments for an institution
+   */
+  public async getCollegeDepartments(collegeId: string): Promise<string[]> {
+    try {
+      const res = await this.request<{ success: boolean; departments: string[] }>(
+        `/api/colleges/${encodeURIComponent(collegeId)}/departments`,
+        { method: 'GET' }
+      )
+      return res.departments || []
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Complete or update student profile (department, contact details)
+   */
+  public async updateStudentProfile(data: {
+    department?: string
+    course?: string
+    phone?: string
+    bloodGroup?: string
+    dob?: string
+  }): Promise<{ success: boolean; profile: any }> {
+    return this.request<{ success: boolean; profile: any }>('/api/student/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
   }
 
   /**

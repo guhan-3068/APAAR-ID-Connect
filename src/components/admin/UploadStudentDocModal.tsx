@@ -10,6 +10,8 @@ import {
   Loader2,
   FileText,
   ShieldCheck,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { useAdmin } from '@/context/AdminContext'
 import type { StudentSearchResult } from '@/services/portalApiService'
@@ -38,10 +40,12 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
 
   // Student selection state
   const [searchQuery, setSearchQuery] = useState(initialStudent?.registrationNumber || '')
+  const [searchType, setSearchType] = useState<'registrationNumber' | 'apaarId'>('registrationNumber')
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [searchResults, setSearchResults] = useState<StudentSearchResult[]>([])
   const [selectedStudent, setSelectedStudent] = useState<StudentSearchResult | null>(null)
+  const [revealApaar, setRevealApaar] = useState(false)
 
   // Document details state
   const [documentType, setDocumentType] = useState('Semester Marksheet & Grade Card')
@@ -88,8 +92,20 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
     if (e) e.preventDefault()
     const q = searchQuery.trim()
     if (!q) {
-      setSearchError('Please enter a student registration number to search.')
+      setSearchError(
+        searchType === 'apaarId'
+          ? 'Please enter an APAAR ID to search.'
+          : 'Please enter a student registration number to search.'
+      )
       return
+    }
+
+    if (searchType === 'apaarId') {
+      const cleanDigits = q.replace(/[\s-]+/g, '')
+      if (!/^\d{12}$/.test(cleanDigits)) {
+        setSearchError('Invalid APAAR ID format. Please enter a valid 12-digit number (e.g. 1111-2222-3333).')
+        return
+      }
     }
 
     setIsSearching(true)
@@ -97,11 +113,9 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
     setSearchResults([])
 
     try {
-      const results = await searchStudents(q)
+      const results = await searchStudents(q, searchType)
       if (!results || results.length === 0) {
-        setSearchError(
-          `No registered student with registration number or query "${q}" found in ${adminProfile.institutionName}. Documents can only be attached to verified students belonging to your institution.`
-        )
+        setSearchError('No student found in your college for this identifier.')
       } else if (results.length === 1) {
         setSelectedStudent(results[0])
         setSearchResults([])
@@ -119,6 +133,19 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
     const file = e.target.files?.[0]
     if (!file) return
 
+    const ext = '.' + file.name.split('.').pop()?.toLowerCase()
+    const allowed = ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc', '.txt']
+    if (!allowed.includes(ext)) {
+      setSubmitError(`Invalid file format "${ext}". Allowed formats are PDF, PNG, JPG, JPEG, DOCX, DOC, and TXT.`)
+      return
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      setSubmitError('File size exceeds the 15 MB limit. Please select a smaller file.')
+      return
+    }
+
+    setSubmitError(null)
     setFileName(file.name)
 
     // Format size
@@ -158,7 +185,9 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
       const parsedTotalCredits = parseInt(totalCredits, 10)
 
       await uploadStudentDocument({
+        studentId: selectedStudent.id,
         studentRegistrationNumber: selectedStudent.registrationNumber,
+        apaarId: selectedStudent.apaarId,
         documentType,
         title: title.trim(),
         fileName: fileName.trim() || `${selectedStudent.registrationNumber}_${documentType.replace(/\s+/g, '_')}.pdf`,
@@ -234,19 +263,36 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
               {/* Step 1: Student Lookup & Confirmation */}
               <div className="space-y-2">
                 <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px]">
-                  Step 1: Student Lookup (Registration Number)
+                  Step 1: Student Search (Registration Number or APAAR ID)
                 </label>
 
                 {!selectedStudent ? (
                   <div className="space-y-3">
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="w-full sm:w-48 shrink-0">
+                        <select
+                          value={searchType}
+                          onChange={(e) => {
+                            setSearchType(e.target.value as 'registrationNumber' | 'apaarId')
+                            setSearchError(null)
+                          }}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                        >
+                          <option value="registrationNumber">Registration Number</option>
+                          <option value="apaarId">APAAR ID</option>
+                        </select>
+                      </div>
                       <div className="relative flex-1">
                         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Enter Student College Registration Number (e.g. 2021NIET0841)"
+                          placeholder={
+                            searchType === 'apaarId'
+                              ? 'Enter 12-digit APAAR ID (e.g. 1111-2222-3333)...'
+                              : 'Enter College Registration Number...'
+                          }
                           className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 font-mono"
                         />
                       </div>
@@ -254,10 +300,10 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
                         type="button"
                         onClick={handleSearchStudent}
                         disabled={isSearching}
-                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-60"
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60 cursor-pointer"
                       >
                         {isSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
-                        <span>Search Student</span>
+                        <span>Search</span>
                       </button>
                     </div>
 
@@ -272,24 +318,32 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
                     {searchResults.length > 1 && (
                       <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                         <p className="font-semibold text-slate-700">
-                          Multiple students matched your query. Select the intended student:
+                          Multiple students matched your query. Please confirm and select the intended student:
                         </p>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
                           {searchResults.map((st) => (
                             <div
                               key={st.id}
-                              onClick={() => setSelectedStudent(st)}
+                              onClick={() => {
+                                setSelectedStudent(st)
+                                setSearchResults([])
+                              }}
                               className="p-2.5 rounded-lg border border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50/50 cursor-pointer flex items-center justify-between transition-colors"
                             >
                               <div>
                                 <p className="font-bold text-slate-900">{st.fullName}</p>
                                 <p className="text-[11px] text-slate-500 font-mono">
-                                  {st.registrationNumber} • {st.department} • Sem {st.semester}
+                                  {st.registrationNumber} • {st.department} • {st.course || 'B.Tech'}
                                 </p>
                               </div>
                               <button
                                 type="button"
-                                className="px-2.5 py-1 rounded bg-blue-100 text-blue-700 text-[10px] font-bold"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedStudent(st)
+                                  setSearchResults([])
+                                }}
+                                className="px-2.5 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-700 text-[10px] font-bold transition-colors cursor-pointer"
                               >
                                 Select
                               </button>
@@ -313,12 +367,37 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
                             Confirmed Student
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-slate-600 text-[11px]">
+                        <div className="flex items-center gap-2 mt-0.5 text-slate-600 text-[11px] flex-wrap">
                           <span className="font-mono font-bold text-slate-800">{selectedStudent.registrationNumber}</span>
                           <span>•</span>
-                          <span>{selectedStudent.department}</span>
-                          <span>•</span>
-                          <span>Sem {selectedStudent.semester}</span>
+                          <span className="font-semibold text-slate-800">{selectedStudent.department}</span>
+                          {selectedStudent.course && (
+                            <>
+                              <span>•</span>
+                              <span>{selectedStudent.course}</span>
+                            </>
+                          )}
+                          {selectedStudent.apaarId && (
+                            <>
+                              <span>•</span>
+                              <span className="inline-flex items-center gap-1 font-mono text-blue-800">
+                                <span>
+                                  APAAR:{' '}
+                                  {revealApaar
+                                    ? `${selectedStudent.apaarId.slice(0, 4)}-${selectedStudent.apaarId.slice(4, 8)}-${selectedStudent.apaarId.slice(8, 12)}`
+                                    : `•••• •••• ${selectedStudent.apaarId.slice(-4)}`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setRevealApaar(!revealApaar)}
+                                  className="text-slate-400 hover:text-blue-600 p-0.5"
+                                  title={revealApaar ? 'Mask APAAR ID' : 'Reveal APAAR ID'}
+                                >
+                                  {revealApaar ? <EyeOff size={11} /> : <Eye size={11} />}
+                                </button>
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -327,8 +406,9 @@ export const UploadStudentDocModal: React.FC<UploadStudentDocModalProps> = ({
                       onClick={() => {
                         setSelectedStudent(null)
                         setSearchResults([])
+                        setRevealApaar(false)
                       }}
-                      className="text-xs text-blue-700 font-semibold hover:underline"
+                      className="text-xs text-blue-700 font-semibold hover:underline cursor-pointer"
                     >
                       Change Student
                     </button>

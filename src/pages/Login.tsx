@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   ShieldCheck,
@@ -12,7 +12,7 @@ import {
   Building2,
   ShieldAlert,
   GraduationCap,
-  Sparkles,
+  KeyRound,
 } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { Input } from '@/components/common/Input'
@@ -27,7 +27,7 @@ type AuthError = { identifier?: string; password?: string; general?: string }
 export const Login: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { login } = useAuth()
+  const { login, verifySecurityChallenge } = useAuth()
 
   // Selected Portal Tab
   const [selectedPortal, setSelectedPortal] = useState<PortalType>('student')
@@ -37,12 +37,28 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
+  // Two-Factor Administrative Security Challenge State
+  const [challengeStep, setChallengeStep] = useState(false)
+  const [challengeQuestion, setChallengeQuestion] = useState('')
+  const [challengeToken, setChallengeToken] = useState('')
+  const [securityAnswer, setSecurityAnswer] = useState('')
+  const [showSecurityAnswer, setShowSecurityAnswer] = useState(false)
+
   // UI state
   const [errors, setErrors] = useState<AuthError>({})
   const [isLoading, setIsLoading] = useState(false)
 
   // Message from ProtectedRoute redirect
   const redirectMessage = (location.state as any)?.message
+
+  // Support ?portal= query parameter
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const portalParam = params.get('portal')
+    if (portalParam === 'platform_admin' || portalParam === 'college_admin' || portalParam === 'student') {
+      setSelectedPortal(portalParam)
+    }
+  }, [location.search])
 
   /* ------------------------------------------------------------------ */
   /* Validation                                                           */
@@ -57,6 +73,15 @@ export const Login: React.FC = () => {
         errs.identifier = 'APAAR ID is required'
       } else if (!isValidApaarId(cleanedId)) {
         errs.identifier = 'APAAR ID must be exactly 12 digits (e.g. 2104-2024-1234)'
+      }
+    } else if (selectedPortal === 'platform_admin') {
+      if (!identifier.trim()) {
+        errs.identifier = 'Official email or username is required'
+      } else if (identifier.includes('@')) {
+        const emailVal = validateEmail(identifier)
+        if (!emailVal.isValid) errs.identifier = emailVal.error
+      } else if (identifier.trim().length < 3) {
+        errs.identifier = 'Administrative username must be at least 3 characters'
       }
     } else {
       const emailVal = validateEmail(identifier)
@@ -88,6 +113,13 @@ export const Login: React.FC = () => {
 
     try {
       const res = await login(identifier, password, selectedPortal)
+      if (res.requireSecurityChallenge) {
+        setIsLoading(false)
+        setChallengeQuestion(res.question || 'What was the name of your first school?')
+        setChallengeToken(res.challengeToken || '')
+        setChallengeStep(true)
+        return
+      }
       setIsLoading(false)
       navigate(res.redirectPath)
     } catch (err: any) {
@@ -96,6 +128,32 @@ export const Login: React.FC = () => {
         general:
           err.message ||
           'Failed to sign in. Please verify your credentials and network connection.',
+      })
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Security Challenge Submit Handler                                     */
+  /* ------------------------------------------------------------------ */
+
+  const handleChallengeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!securityAnswer.trim()) {
+      setErrors({ general: 'Please provide the answer to your registered security question.' })
+      return
+    }
+
+    setErrors({})
+    setIsLoading(true)
+
+    try {
+      const res = await verifySecurityChallenge(challengeToken, securityAnswer)
+      setIsLoading(false)
+      navigate(res.redirectPath)
+    } catch (err: any) {
+      setIsLoading(false)
+      setErrors({
+        general: err.message || 'Security verification failed. Please verify your answer.',
       })
     }
   }
@@ -118,21 +176,11 @@ export const Login: React.FC = () => {
     setSelectedPortal(portal)
     setIdentifier('')
     setPassword('')
+    setChallengeStep(false)
+    setChallengeToken('')
+    setChallengeQuestion('')
+    setSecurityAnswer('')
     setErrors({})
-  }
-
-  const fillDemoCredentials = () => {
-    setErrors({})
-    if (selectedPortal === 'student') {
-      setIdentifier('2104-2024-1234')
-      setPassword('Apaar@2026')
-    } else if (selectedPortal === 'college_admin') {
-      setIdentifier('registrar@niet.edu.in')
-      setPassword('Apaar@2026')
-    } else {
-      setIdentifier('admin@aicte.gov.in')
-      setPassword('Apaar@2026')
-    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -231,123 +279,212 @@ export const Login: React.FC = () => {
             </div>
           )}
 
-          {/* Sign-In Form */}
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            {/* Identifier Field (APAAR ID for Student, Email for Admins) */}
-            {selectedPortal === 'student' ? (
-              <Input
-                label="12-Digit APAAR ID"
-                id="login-apaar-id"
-                type="text"
-                inputMode="numeric"
-                value={identifier}
-                onChange={handleIdentifierChange}
-                error={errors.identifier}
-                leftIcon={<CreditCard size={16} />}
-                placeholder="e.g. 2104-2024-1234"
-                autoComplete="username"
-                maxLength={14}
-                required
-              />
-            ) : (
-              <Input
-                label={
-                  selectedPortal === 'college_admin'
-                    ? 'Official Institutional Email'
-                    : 'Platform Admin Email'
-                }
-                id="login-email"
-                type="email"
-                value={identifier}
-                onChange={handleIdentifierChange}
-                error={errors.identifier}
-                leftIcon={selectedPortal === 'college_admin' ? <Building2 size={16} /> : <ShieldAlert size={16} />}
-                placeholder={
-                  selectedPortal === 'college_admin'
-                    ? 'registrar@niet.edu.in'
-                    : 'admin@aicte.gov.in'
-                }
-                autoComplete="username"
-                required
-              />
-            )}
+          {challengeStep ? (
+            <div className="space-y-5">
+              <div className="text-center space-y-1.5">
+                <div className="h-12 w-12 rounded-xl bg-gradient-to-tr from-amber-500 to-rose-600 text-white flex items-center justify-center mx-auto shadow-md shadow-rose-500/20">
+                  <KeyRound size={24} />
+                </div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Two-Factor Security Challenge
+                </h2>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                  Please answer your registered administrator security challenge question to verify your identity.
+                </p>
+              </div>
 
-            {/* Password Field */}
-            <div>
-              <Input
-                label="Password"
-                id="login-password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value)
-                  if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }))
-                }}
-                error={errors.password}
-                leftIcon={<Lock size={16} />}
-                rightIcon={
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="p-1 rounded text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                }
-                placeholder="Enter your password"
-                autoComplete="current-password"
-                required
-              />
-            </div>
+              {errors.general && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 flex items-start gap-2.5 leading-relaxed">
+                  <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
+                  <span>{errors.general}</span>
+                </div>
+              )}
 
-            {/* Forgot Password Link & Demo Auto-fill */}
-            <div className="flex items-center justify-between text-xs pt-0.5">
-              <button
-                type="button"
-                onClick={fillDemoCredentials}
-                className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-600 hover:text-purple-800 transition-colors"
-                title="Fill pre-seeded demonstration credentials"
-              >
-                <Sparkles size={12} />
-                <span>Fill Demo Credentials</span>
-              </button>
+              <form onSubmit={handleChallengeSubmit} className="space-y-4" noValidate>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+                    Security Question
+                  </span>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {challengeQuestion}
+                  </p>
+                </div>
 
-              <Link
-                to="/forgot-password"
-                className="font-medium text-blue-600 hover:text-purple-600 hover:underline transition-colors"
-              >
-                Forgot Password?
-              </Link>
-            </div>
+                <div>
+                  <Input
+                    label="Your Security Answer"
+                    id="challenge-security-answer"
+                    type={showSecurityAnswer ? 'text' : 'password'}
+                    value={securityAnswer}
+                    onChange={(e) => {
+                      setSecurityAnswer(e.target.value)
+                      if (errors.general) setErrors({})
+                    }}
+                    placeholder="Enter the registered answer"
+                    autoComplete="off"
+                    autoFocus
+                    required
+                    rightIcon={
+                      <button
+                        type="button"
+                        onClick={() => setShowSecurityAnswer(!showSecurityAnswer)}
+                        className="p-1 rounded text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                        aria-label={showSecurityAnswer ? 'Hide answer' : 'Show answer'}
+                      >
+                        {showSecurityAnswer ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    }
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-400 leading-normal">
+                    Answers are case-insensitive and verified against a salted PBKDF2 cryptographic hash. 5 consecutive failed attempts trigger a 15-minute lockout.
+                  </p>
+                </div>
 
-            {/* Sign In Button */}
-            <Button
-              type="submit"
-              variant="primary"
-              isLoading={isLoading}
-              className="w-full py-2.5 text-sm font-semibold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-md shadow-blue-500/20 rounded-xl"
-              rightIcon={<ArrowRight size={16} />}
-            >
-              Sign In to {selectedPortal === 'student' ? 'Student' : selectedPortal === 'college_admin' ? 'College' : 'Platform'} Portal
-            </Button>
-          </form>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={isLoading}
+                  className="w-full py-2.5 text-sm font-semibold bg-gradient-to-r from-rose-600 via-indigo-600 to-purple-600 hover:from-rose-700 hover:to-purple-700 shadow-md shadow-rose-500/20 rounded-xl"
+                  rightIcon={<ArrowRight size={16} />}
+                >
+                  Verify & Access Platform Portal
+                </Button>
 
-          {/* Create Account Link */}
-          {selectedPortal !== 'platform_admin' ? (
-            <div className="mt-6 pt-5 border-t border-slate-100 text-center text-sm text-slate-600">
-              First-Time User?{' '}
-              <Link
-                to="/register"
-                className="font-semibold text-blue-600 hover:text-purple-600 hover:underline transition-colors"
-              >
-                Create Account
-              </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChallengeStep(false)
+                    setSecurityAnswer('')
+                    setErrors({})
+                  }}
+                  className="w-full text-center text-xs text-slate-500 hover:text-slate-700 py-1 cursor-pointer font-medium"
+                >
+                  Cancel and Return to Sign In
+                </button>
+              </form>
             </div>
           ) : (
-            <div className="mt-6 pt-5 border-t border-slate-100 text-center text-xs text-slate-500">
-              Platform Admin accounts are restricted and provisioned by AICTE nodal authority.
-            </div>
+            <>
+              {/* Sign-In Form */}
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                {/* Identifier Field (APAAR ID for Student, Email/Username for Admins) */}
+                {selectedPortal === 'student' ? (
+                  <Input
+                    label="12-Digit APAAR ID"
+                    id="login-apaar-id"
+                    type="text"
+                    inputMode="numeric"
+                    value={identifier}
+                    onChange={handleIdentifierChange}
+                    error={errors.identifier}
+                    leftIcon={<CreditCard size={16} />}
+                    placeholder="e.g. 2104-2024-1234"
+                    autoComplete="username"
+                    maxLength={14}
+                    required
+                  />
+                ) : (
+                  <Input
+                    label={
+                      selectedPortal === 'college_admin'
+                        ? 'Official Institutional Email'
+                        : 'Platform Admin Email or Username'
+                    }
+                    id="login-email"
+                    type={selectedPortal === 'platform_admin' ? 'text' : 'email'}
+                    value={identifier}
+                    onChange={handleIdentifierChange}
+                    error={errors.identifier}
+                    leftIcon={selectedPortal === 'college_admin' ? <Building2 size={16} /> : <ShieldAlert size={16} />}
+                    placeholder={
+                      selectedPortal === 'college_admin'
+                        ? 'e.g. registrar@college.edu.in'
+                        : 'admin@aicte.gov.in or username'
+                    }
+                    autoComplete="username"
+                    required
+                  />
+                )}
+
+                {/* Password Field */}
+                <div>
+                  <Input
+                    label="Password"
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }))
+                    }}
+                    error={errors.password}
+                    leftIcon={<Lock size={16} />}
+                    rightIcon={
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-1 rounded text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    }
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+
+                {/* Forgot Password Link */}
+                <div className="flex items-center justify-end text-xs pt-0.5">
+                  <Link
+                    to="/forgot-password"
+                    className="font-medium text-blue-600 hover:text-purple-600 hover:underline transition-colors"
+                  >
+                    Forgot Password?
+                  </Link>
+                </div>
+
+                {/* Sign In Button */}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={isLoading}
+                  className="w-full py-2.5 text-sm font-semibold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-md shadow-blue-500/20 rounded-xl"
+                  rightIcon={<ArrowRight size={16} />}
+                >
+                  Sign In to {selectedPortal === 'student' ? 'Student' : selectedPortal === 'college_admin' ? 'College' : 'Platform'} Portal
+                </Button>
+              </form>
+
+              {/* Create Account Link */}
+              {selectedPortal !== 'platform_admin' ? (
+                <div className="mt-6 pt-5 border-t border-slate-100 text-center text-sm text-slate-600">
+                  First-Time User?{' '}
+                  <Link
+                    to="/register"
+                    className="font-semibold text-blue-600 hover:text-purple-600 hover:underline transition-colors"
+                  >
+                    Create Account
+                  </Link>
+                </div>
+              ) : (
+                <div className="mt-6 pt-5 border-t border-slate-100 text-center text-sm text-slate-600 space-y-1.5">
+                  <div>
+                    Platform Administrator Enrollment?{' '}
+                    <Link
+                      to="/register?portal=platform_admin"
+                      className="font-semibold text-rose-600 hover:text-rose-700 hover:underline transition-colors"
+                    >
+                      Create Platform Administrator Account
+                    </Link>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Restricted to authorized AICTE central and nodal administrative officers.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </Card>
 

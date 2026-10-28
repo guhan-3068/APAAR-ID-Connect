@@ -4,10 +4,16 @@ import {
   dbService,
   hashPassword,
   verifyPassword,
+  hashSecurityAnswer,
+  verifySecurityAnswer,
+  normalizeSecurityAnswer,
+  normalizeInstitutionCode,
+  normalizeInstitutionName,
   getDatabase,
   saveDatabase,
   type UserRecord,
   type StudentRecord,
+  type CollegeRecord,
 } from './portalDb.ts'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'apaar-connect-ai-sec-key-2026-sih-token'
@@ -167,14 +173,42 @@ export async function handleAuthRequest(
       return true
     }
 
+    if ((endpoint === '/api/colleges' || endpoint === '/api/auth/colleges') && req.method === 'GET') {
+      const db = getDatabase()
+      const colleges = db.colleges
+        .filter((c) => c.status === 'approved' || c.status === 'active')
+        .map((c) => ({
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          state: c.state,
+          district: c.district,
+          type: c.type,
+          departments: dbService.getCollegeDepartments(c.id),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      sendJson(res, 200, { success: true, colleges })
+      return true
+    }
+
+    if (endpoint.startsWith('/api/colleges/') && endpoint.endsWith('/departments') && req.method === 'GET') {
+      const parts = endpoint.split('/')
+      const colId = parts[3]
+      const departments = dbService.getCollegeDepartments(colId)
+      sendJson(res, 200, { success: true, collegeId: colId, departments })
+      return true
+    }
+
     if (endpoint === '/api/auth/login' && req.method === 'POST') {
       const body = await parseBody(req)
-      const identifier = (body.identifier || body.email || '').trim()
+      const identifier = (body.identifier || body.email || body.username || '').trim()
       const password = body.password || ''
       const portal = body.portal
+      const securityAnswer = body.securityAnswer
 
       if (!identifier || !password) {
-        sendJson(res, 400, { error: 'Identifier (APAAR ID or Email) and password are required.' })
+        sendJson(res, 400, { error: 'Identifier (APAAR ID, Email, or Username) and password are required.' })
         return true
       }
 
@@ -193,7 +227,9 @@ export async function handleAuthRequest(
         )
       } else {
         matchedUser = db.users.find(
-          (u) => u.email.toLowerCase() === cleanInput.toLowerCase()
+          (u) =>
+            u.email.toLowerCase() === cleanInput.toLowerCase() ||
+            (u.username && u.username.toLowerCase() === cleanInput.toLowerCase())
         )
       }
 
@@ -207,6 +243,18 @@ export async function handleAuthRequest(
         return true
       }
 
+      // Check account lockout
+      if (matchedUser.lockoutUntil && matchedUser.lockoutUntil > Date.now()) {
+        const remainingMinutes = Math.max(1, Math.ceil((matchedUser.lockoutUntil - Date.now()) / 60000))
+        sendJson(res, 429, {
+          error: `Account is temporarily locked due to excessive failed attempts. Please retry in ${remainingMinutes} minute(s).`,
+          locked: true,
+          remainingMinutes,
+          lockoutUntil: matchedUser.lockoutUntil,
+        })
+        return true
+      }
+
       if (portal && portal !== matchedUser.role) {
         sendJson(res, 403, {
           error: `This account has role "${matchedUser.role}" and is not authorized to sign in through the ${portal} portal.`,
@@ -216,12 +264,32 @@ export async function handleAuthRequest(
 
       const isMatch = verifyPassword(password, matchedUser.passwordHash)
       if (!isMatch) {
-        sendJson(res, 401, { error: 'Invalid credentials. Incorrect password entered.' })
+        matchedUser.failedLoginAttempts = (matchedUser.failedLoginAttempts || 0) + 1
+        if (matchedUser.failedLoginAttempts >= 5) {
+          matchedUser.lockoutUntil = Date.now() + 15 * 60 * 1000 // 15-minute lockout
+          saveDatabase(db)
+          sendJson(res, 429, {
+            error: 'Account temporarily locked for 15 minutes due to 5 consecutive failed attempts.',
+            locked: true,
+          })
+          return true
+        }
+        saveDatabase(db)
+        sendJson(res, 401, {
+          error: `Invalid credentials. Incorrect password entered. (${5 - matchedUser.failedLoginAttempts} attempts remaining before temporary lockout)`,
+        })
         return true
       }
 
       if (matchedUser.status === 'pending_approval') {
-        sendJson(res, 403, { error: 'Institutional account is pending approval by the Platform Administrator.' })
+        sendJson(res, 403, {
+          error:
+            matchedUser.role === 'platform_admin'
+              ? 'Platform Administrator registration is pending authorization and approval by the Central AICTE Platform Authority.'
+              : 'Institutional account is pending approval by the Platform Administrator.',
+          pendingApproval: true,
+          requiresApproval: true,
+        })
         return true
       }
 
@@ -229,6 +297,57 @@ export async function handleAuthRequest(
         sendJson(res, 403, { error: 'Account has been temporarily suspended. Contact nodal authority.' })
         return true
       }
+
+      // Platform Administrator Security Question Verification
+      if (matchedUser.role === 'platform_admin' && matchedUser.securityQuestion && matchedUser.securityAnswerHash) {
+        // If security answer was provided in login request, verify it immediately
+        if (securityAnswer) {
+          const isAnswerMatch = verifySecurityAnswer(securityAnswer, matchedUser.securityAnswerHash)
+          if (!isAnswerMatch) {
+            matchedUser.failedLoginAttempts = (matchedUser.failedLoginAttempts || 0) + 1
+            if (matchedUser.failedLoginAttempts >= 5) {
+              matchedUser.lockoutUntil = Date.now() + 15 * 60 * 1000
+            }
+            saveDatabase(db)
+            sendJson(res, 401, {
+              error: 'Security challenge failed: Incorrect security question answer.',
+              securityChallengeFailed: true,
+            })
+            return true
+          }
+        } else if (body.directLogin !== true && portal === 'platform_admin') {
+          // Two-step challenge prompt: Return security question to verify
+          const challengeToken = createJwt(
+            {
+              userId: matchedUser.id,
+              role: matchedUser.role,
+              purpose: 'security_challenge',
+            },
+            300 // 5-minute validity
+          )
+
+          sendJson(res, 200, {
+            success: true,
+            requireSecurityChallenge: true,
+            question: matchedUser.securityQuestion,
+            securityQuestion: matchedUser.securityQuestion,
+            challengeToken,
+            user: {
+              id: matchedUser.id,
+              fullName: matchedUser.fullName,
+              email: matchedUser.email,
+              username: matchedUser.username,
+              role: matchedUser.role,
+            },
+          })
+          return true
+        }
+      }
+
+      // Successful login: reset failed attempts & lockout
+      matchedUser.failedLoginAttempts = 0
+      matchedUser.lockoutUntil = 0
+      saveDatabase(db)
 
       // Find College ID for College Admin or Student
       let collegeId = matchedUser.collegeId
@@ -241,14 +360,32 @@ export async function handleAuthRequest(
         ? db.students.find((s) => s.userId === matchedUser?.id || (matchedUser?.apaarId && s.apaarId === matchedUser.apaarId))
         : undefined
 
+      const effectiveCollegeId = collegeId || studentRecord?.collegeId
+      const college = effectiveCollegeId ? dbService.findCollegeById(effectiveCollegeId) : undefined
+      const effectiveInstitutionName = college ? college.name : (matchedUser.institutionName || studentRecord?.institutionName)
+      const effectiveInstitutionCode = college ? college.code : (matchedUser.institutionCode || studentRecord?.institutionCode)
+
+      // Keep user and student profile synchronized with authoritative college
+      if (college) {
+        matchedUser.collegeId = college.id
+        matchedUser.institutionName = college.name
+        matchedUser.institutionCode = college.code
+        if (studentRecord) {
+          studentRecord.collegeId = college.id
+          studentRecord.institutionName = college.name
+          studentRecord.institutionCode = college.code
+        }
+      }
+
       const token = createJwt({
         userId: matchedUser.id,
         email: matchedUser.email,
+        username: matchedUser.username,
         role: matchedUser.role,
         apaarId: matchedUser.apaarId,
-        collegeId: collegeId || studentRecord?.collegeId,
+        collegeId: effectiveCollegeId,
         studentId: studentRecord?.id,
-        institutionCode: matchedUser.institutionCode,
+        institutionCode: effectiveInstitutionCode,
       })
 
       sendJson(res, 200, {
@@ -258,13 +395,94 @@ export async function handleAuthRequest(
           id: matchedUser.id,
           fullName: matchedUser.fullName,
           email: matchedUser.email,
+          username: matchedUser.username,
           role: matchedUser.role,
           apaarId: matchedUser.apaarId,
-          collegeId: collegeId || studentRecord?.collegeId,
-          institutionName: matchedUser.institutionName || studentRecord?.institutionName,
-          institutionCode: matchedUser.institutionCode || studentRecord?.institutionCode,
+          collegeId: effectiveCollegeId,
+          institutionName: effectiveInstitutionName,
+          institutionCode: effectiveInstitutionCode,
         },
-        profile: studentRecord,
+        profile: studentRecord
+          ? {
+            ...studentRecord,
+            collegeId: effectiveCollegeId || studentRecord.collegeId,
+            institutionName: effectiveInstitutionName,
+            institutionCode: effectiveInstitutionCode,
+          }
+          : undefined,
+      })
+      return true
+    }
+
+    if (endpoint === '/api/auth/verify-security-challenge' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const { challengeToken, securityAnswer } = body
+
+      if (!challengeToken || !securityAnswer) {
+        sendJson(res, 400, { error: 'Challenge session token and security answer are required.' })
+        return true
+      }
+
+      const verification = verifyJwt(challengeToken)
+      if (!verification.valid || !verification.payload || verification.payload.purpose !== 'security_challenge') {
+        sendJson(res, 401, { error: 'Security challenge session has expired or is invalid. Please sign in again.' })
+        return true
+      }
+
+      const db = getDatabase()
+      const user = db.users.find((u) => u.id === verification.payload.userId)
+      if (!user) {
+        sendJson(res, 404, { error: 'Administrator account not found.' })
+        return true
+      }
+
+      // Check lockout
+      if (user.lockoutUntil && user.lockoutUntil > Date.now()) {
+        const remainingMinutes = Math.max(1, Math.ceil((user.lockoutUntil - Date.now()) / 60000))
+        sendJson(res, 429, {
+          error: `Account is temporarily locked due to excessive failed attempts. Please retry in ${remainingMinutes} minute(s).`,
+          locked: true,
+          remainingMinutes,
+        })
+        return true
+      }
+
+      const isMatch = verifySecurityAnswer(securityAnswer, user.securityAnswerHash)
+      if (!isMatch) {
+        user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1
+        if (user.failedLoginAttempts >= 5) {
+          user.lockoutUntil = Date.now() + 15 * 60 * 1000
+        }
+        saveDatabase(db)
+        sendJson(res, 401, {
+          error: `Incorrect security answer. Access denied. (${5 - user.failedLoginAttempts} attempts remaining before temporary lockout)`,
+          remainingAttempts: Math.max(0, 5 - user.failedLoginAttempts),
+        })
+        return true
+      }
+
+      // Success: Reset failed attempts & lockout
+      user.failedLoginAttempts = 0
+      user.lockoutUntil = 0
+      saveDatabase(db)
+
+      const token = createJwt({
+        userId: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+      })
+
+      sendJson(res, 200, {
+        success: true,
+        token,
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+        },
       })
       return true
     }
@@ -284,6 +502,11 @@ export async function handleAuthRequest(
         )
       }
 
+      const effectiveCollegeId = auth.user.collegeId || studentRecord?.collegeId
+      const college = effectiveCollegeId ? dbService.findCollegeById(effectiveCollegeId) : undefined
+      const effectiveInstitutionName = college ? college.name : (auth.user.institutionName || studentRecord?.institutionName)
+      const effectiveInstitutionCode = college ? college.code : (auth.user.institutionCode || studentRecord?.institutionCode)
+
       sendJson(res, 200, {
         success: true,
         user: {
@@ -292,20 +515,74 @@ export async function handleAuthRequest(
           email: auth.user.email,
           role: auth.user.role,
           apaarId: auth.user.apaarId,
-          collegeId: auth.user.collegeId || studentRecord?.collegeId,
-          institutionName: auth.user.institutionName || studentRecord?.institutionName,
-          institutionCode: auth.user.institutionCode || studentRecord?.institutionCode,
+          collegeId: effectiveCollegeId,
+          institutionName: effectiveInstitutionName,
+          institutionCode: effectiveInstitutionCode,
         },
-        profile: studentRecord,
+        profile: studentRecord
+          ? {
+            ...studentRecord,
+            collegeId: effectiveCollegeId || studentRecord.collegeId,
+            institutionName: effectiveInstitutionName,
+            institutionCode: effectiveInstitutionCode,
+          }
+          : undefined,
+      })
+      return true
+    }
+
+    if (endpoint === '/api/auth/verify-token' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const token =
+        body.token || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '').trim() : '')
+      if (!token) {
+        sendJson(res, 400, { valid: false, error: 'Token is required.' })
+        return true
+      }
+
+      const verified = verifyJwt(token)
+      if (!verified.valid || !verified.payload) {
+        sendJson(res, 401, { valid: false, error: 'Invalid or expired token.' })
+        return true
+      }
+
+      const db = getDatabase()
+      const user = db.users.find((u) => u.id === verified.payload.userId)
+      if (!user) {
+        sendJson(res, 404, { valid: false, error: 'User not found.' })
+        return true
+      }
+
+      sendJson(res, 200, {
+        valid: true,
+        user: {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+        },
       })
       return true
     }
 
     if (endpoint === '/api/auth/register/student' && req.method === 'POST') {
       const body = await parseBody(req)
-      const { fullName, email, institutionName, apaarId, password, collegeCode, registrationNumber } = body
+      const {
+        fullName,
+        email,
+        institutionName,
+        apaarId,
+        password,
+        collegeCode,
+        collegeId,
+        registrationNumber,
+        department,
+        course,
+        academicYear,
+      } = body
 
-      if (!fullName || !email || !institutionName || !apaarId || !password) {
+      if (!fullName || !email || (!institutionName && !collegeId) || !apaarId || !password) {
         sendJson(res, 400, { error: 'Full name, email, institution, APAAR ID, and password are required.' })
         return true
       }
@@ -339,12 +616,64 @@ export async function handleAuthRequest(
         return true
       }
 
-      // Find or assign college
-      let matchedCollege = collegeCode ? dbService.findCollegeByCode(collegeCode) : undefined
+      // 1. Authoritative College Selection & Resolution
+      let matchedCollege: CollegeRecord | undefined
+
+      // Match by unique collegeId if provided
+      if (collegeId) {
+        matchedCollege = dbService.findCollegeById(collegeId)
+      }
+
+      // Match by code if provided
+      if (!matchedCollege && (collegeCode || body.aicteCode)) {
+        matchedCollege = dbService.findCollegeByCode(collegeCode || body.aicteCode)
+      }
+
+      // Match by name using normalized comparison
+      if (!matchedCollege && institutionName) {
+        matchedCollege = dbService.findCollegeByName(institutionName)
+      }
+
+      // If still not matched, preserve the student's selected college with normalized code
       if (!matchedCollege) {
-        matchedCollege = db.colleges.find((c) =>
-          c.name.toLowerCase().includes(institutionName.trim().toLowerCase())
-        ) || db.colleges[0]
+        const newColId = `col_${Date.now()}`
+        const finalCollegeName = (institutionName || 'AICTE Technical Institution').trim()
+        const rawCode = collegeCode || body.aicteCode || `COL-${cleanApaarId.slice(-4)}`
+        const finalCode = normalizeInstitutionCode(rawCode)
+        matchedCollege = {
+          id: newColId,
+          code: finalCode,
+          name: finalCollegeName,
+          state: 'All India',
+          district: 'Administrative HQ',
+          type: 'AICTE Recognized Technical Institution',
+          status: 'approved',
+          contactEmail: email.trim().toLowerCase(),
+          createdAt: new Date().toISOString(),
+        }
+        db.colleges.push(matchedCollege)
+      }
+
+      // 2. Department Resolution & Validation
+      let finalDepartment = (department || '').trim()
+      const collegeDepartments = dbService.getCollegeDepartments(matchedCollege.id)
+
+      if (finalDepartment) {
+        if (collegeDepartments && collegeDepartments.length > 0) {
+          const cleanDept = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/\s+/g, ' ').trim()
+          const normDept = cleanDept(finalDepartment)
+          const matched = collegeDepartments.find((d) => cleanDept(d) === normDept)
+          if (!matched) {
+            sendJson(res, 400, {
+              error: `Selected department "${finalDepartment}" is not offered by ${matchedCollege.name}. Please select a valid department from the college list.`,
+            })
+            return true
+          }
+          finalDepartment = matched
+        }
+      } else {
+        // Fallback for programmatic API clients if department omitted
+        finalDepartment = (collegeDepartments && collegeDepartments[0]) || 'Computer Science and Engineering'
       }
 
       const userId = `usr_stu_${Date.now()}`
@@ -376,9 +705,9 @@ export async function handleAuthRequest(
         apaarId: cleanApaarId,
         registrationNumber: finalRegNo,
         admissionNumber: `ADM${finalRegNo}`,
-        department: 'Engineering / Applied Sciences',
-        course: 'Undergraduate Program',
-        yearOfStudy: '1st Year',
+        department: finalDepartment,
+        course: (course && course.trim()) || 'B.Tech / Undergraduate Program',
+        yearOfStudy: (academicYear && academicYear.trim()) || '1st Year',
         semester: 'Semester 1',
         phone: '',
         dob: '01 Jan 2004',
@@ -443,28 +772,89 @@ export async function handleAuthRequest(
         return true
       }
 
-      const existingCode = db.colleges.find(
-        (c) => c.code.toLowerCase() === aicteCode.trim().toLowerCase()
-      )
-      if (existingCode) {
-        sendJson(res, 409, { error: `College code ${aicteCode} is already registered.` })
+      // Step 1: Search shared college records by normalized code and normalized name
+      const normAicte = normalizeInstitutionCode(aicteCode)
+      const normInstName = normalizeInstitutionName(institutionName)
+
+      if (!normAicte || normAicte.length < 3) {
+        sendJson(res, 400, { error: 'Invalid AICTE permanent institution code format.' })
         return true
       }
 
-      const collegeId = `col_${Date.now()}`
-      const userId = `usr_col_${Date.now()}`
+      const codeMatch = dbService.findCollegeByCode(normAicte)
+      const nameMatch = dbService.findCollegeByName(normInstName)
 
-      const newCollege = {
-        id: collegeId,
-        code: aicteCode.trim(),
-        name: institutionName.trim(),
-        state: 'All India',
-        district: 'Administrative HQ',
-        type: 'AICTE Recognized Technical Institution',
-        status: 'approved' as const,
-        contactEmail: email.trim().toLowerCase(),
-        adminUserId: userId,
-        createdAt: new Date().toISOString(),
+      // Step 4: Conflict Detection (Prompt Step 4)
+      // If code is already registered to a completely different institution name
+      if (codeMatch) {
+        const codeMatchNormName = normalizeInstitutionName(codeMatch.name)
+        if (
+          normInstName &&
+          codeMatchNormName !== normInstName &&
+          !codeMatchNormName.includes(normInstName) &&
+          !normInstName.includes(codeMatchNormName)
+        ) {
+          sendJson(res, 409, {
+            error: `College details conflict: AICTE permanent code "${aicteCode}" is already registered to "${codeMatch.name}". Please verify institutional credentials or contact platform administration.`,
+          })
+          return true
+        }
+      }
+
+      // If name matches an existing college with a completely conflicting code
+      if (nameMatch && !codeMatch) {
+        const nameMatchNormCode = normalizeInstitutionCode(nameMatch.code)
+        if (normAicte && nameMatchNormCode !== normAicte) {
+          sendJson(res, 409, {
+            error: `College details conflict: Institution "${institutionName}" is already registered under code "${nameMatch.code}". Please verify institutional credentials or contact platform administration.`,
+          })
+          return true
+        }
+      }
+
+      const matchedCollege = codeMatch || nameMatch
+
+      // Step 6: Authorization & Impersonation Prevention (Prompt Step 6)
+      if (matchedCollege) {
+        const emailDomain = email.trim().split('@')[1]?.toLowerCase()
+        const collegeContactDomain = matchedCollege.contactEmail?.split('@')[1]?.toLowerCase()
+        const existingAdmins = db.users.filter((u) => u.role === 'college_admin' && u.collegeId === matchedCollege!.id)
+
+        if (emailDomain && collegeContactDomain && !collegeContactDomain.startsWith('.') && collegeContactDomain !== emailDomain) {
+          const hasMatchingDomain = existingAdmins.some((a) => a.email.toLowerCase().endsWith(`@${emailDomain}`))
+          if (!hasMatchingDomain && existingAdmins.length > 0 && !collegeContactDomain.includes(emailDomain) && !emailDomain.includes(collegeContactDomain)) {
+            sendJson(res, 403, {
+              error: `Unauthorized institutional claim: Email domain "${emailDomain}" is not authorized for "${matchedCollege.name}". Administrator accounts must use the official institutional email domain.`,
+            })
+            return true
+          }
+        }
+      }
+
+      const userId = `usr_col_${Date.now()}`
+      let effectiveCollege: CollegeRecord
+
+      // Step 2 & 3: Associate with existing record and preserve status, or create new record (Step 5)
+      if (matchedCollege) {
+        effectiveCollege = matchedCollege
+        if (!matchedCollege.adminUserId) {
+          matchedCollege.adminUserId = userId
+        }
+      } else {
+        const collegeId = `col_${Date.now()}`
+        effectiveCollege = {
+          id: collegeId,
+          code: normAicte,
+          name: institutionName.trim(),
+          state: 'All India',
+          district: 'Administrative HQ',
+          type: 'AICTE Recognized Technical Institution',
+          status: 'approved',
+          contactEmail: email.trim().toLowerCase(),
+          adminUserId: userId,
+          createdAt: new Date().toISOString(),
+        }
+        db.colleges.push(effectiveCollege)
       }
 
       const newUser: UserRecord = {
@@ -472,15 +862,14 @@ export async function handleAuthRequest(
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         role: 'college_admin',
-        collegeId: newCollege.id,
-        institutionName: newCollege.name,
-        institutionCode: newCollege.code,
+        collegeId: effectiveCollege.id,
+        institutionName: effectiveCollege.name,
+        institutionCode: effectiveCollege.code,
         passwordHash: hashPassword(password),
-        status: 'approved',
+        status: effectiveCollege.status === 'pending_approval' ? 'pending_approval' : 'approved',
         createdAt: new Date().toISOString(),
       }
 
-      db.colleges.push(newCollege)
       db.users.push(newUser)
       saveDatabase(db)
 
@@ -488,8 +877,8 @@ export async function handleAuthRequest(
         userId: newUser.id,
         email: newUser.email,
         role: newUser.role,
-        collegeId: newCollege.id,
-        institutionCode: newCollege.code,
+        collegeId: effectiveCollege.id,
+        institutionCode: effectiveCollege.code,
       })
 
       sendJson(res, 201, {
@@ -497,7 +886,244 @@ export async function handleAuthRequest(
         message: 'College institution registered successfully.',
         token,
         user: newUser,
-        college: newCollege,
+        college: effectiveCollege,
+      })
+      return true
+    }
+
+    if (endpoint === '/api/auth/register/platform-admin' && req.method === 'POST') {
+      const body = await parseBody(req)
+      const {
+        fullName,
+        email,
+        username,
+        password,
+        confirmPassword,
+        securityQuestion,
+        securityAnswer,
+        employeeId,
+        designation,
+        invitationCode,
+      } = body
+
+      // 1. Mandatory Fields Validation
+      if (!fullName || !email || !username || !password || !securityQuestion || !securityAnswer) {
+        sendJson(res, 400, {
+          error: 'Full name, official email, username, password, security question, and security answer are required.',
+        })
+        return true
+      }
+
+      // 2. Email format & domain validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(email.trim())) {
+        sendJson(res, 400, { error: 'Please enter a valid official email address.' })
+        return true
+      }
+
+      if (!/\.(gov\.in|nic\.in|ac\.in|edu\.in)$/i.test(email.trim()) && !/@aicte\.gov\.in$/i.test(email.trim())) {
+        sendJson(res, 400, {
+          error: 'Official government or educational email domain required (.gov.in, .nic.in, .ac.in, .edu.in).',
+        })
+        return true
+      }
+
+      // 3. Username format (3-30 characters, alphanumeric and underscore)
+      const cleanUsername = username.trim()
+      if (!/^[a-zA-Z0-9_]{3,30}$/.test(cleanUsername)) {
+        sendJson(res, 400, {
+          error: 'Username must be 3–30 characters long and contain only letters, numbers, and underscores.',
+        })
+        return true
+      }
+
+      // 4. Password validation (Minimum 8 chars, strong password policy)
+      if (password.length < 8) {
+        sendJson(res, 400, { error: 'Password must be at least 8 characters long.' })
+        return true
+      }
+
+      const hasUpper = /[A-Z]/.test(password)
+      const hasLower = /[a-z]/.test(password)
+      const hasDigitOrSpecial = /[\d!@#$%^&*(),.?":{}|<>]/.test(password)
+      if (!hasUpper || !hasLower || !hasDigitOrSpecial) {
+        sendJson(res, 400, {
+          error: 'Strong password policy required: Must contain uppercase, lowercase, and at least one number or special character.',
+        })
+        return true
+      }
+
+      // 5. Password Confirmation
+      if (confirmPassword !== undefined && confirmPassword !== password) {
+        sendJson(res, 400, { error: 'Password and password confirmation do not match.' })
+        return true
+      }
+
+      // 6. Security Question & Answer Validation
+      if (securityQuestion.trim().length < 5) {
+        sendJson(res, 400, { error: 'Security question must be at least 5 characters long.' })
+        return true
+      }
+
+      const normalizedAnswer = normalizeSecurityAnswer(securityAnswer)
+      if (normalizedAnswer.length < 2) {
+        sendJson(res, 400, { error: 'Security question answer must contain at least 2 alphanumeric characters.' })
+        return true
+      }
+
+      const db = getDatabase()
+
+      // 7. Prevent Overwriting Root Bootstrap Administrator
+      if (email.trim().toLowerCase() === 'admin@aicte.gov.in' || cleanUsername.toLowerCase() === 'aicte_central_admin') {
+        sendJson(res, 409, {
+          error: 'Cannot overwrite or re-register the central root platform administrator account; email is already registered.',
+        })
+        return true
+      }
+
+      // 8. Duplicate Account Checks
+      const existingEmail = db.users.find(
+        (u) => u.email.toLowerCase() === email.trim().toLowerCase()
+      )
+      if (existingEmail) {
+        sendJson(res, 409, { error: `Administrator email ${email} is already registered in the system.` })
+        return true
+      }
+
+      const existingUsername = db.users.find(
+        (u) => u.username && u.username.toLowerCase() === cleanUsername.toLowerCase()
+      )
+      if (existingUsername) {
+        sendJson(res, 409, { error: `Username "${cleanUsername}" is already taken. Please choose another.` })
+        return true
+      }
+
+      // 9. Invitation Token Verification & Privileged Enrollment Enforcement
+      let isApproved = false
+      let usedCode: string | undefined
+
+      if (invitationCode && invitationCode.trim()) {
+        const cleanCode = invitationCode.trim().toUpperCase()
+        const foundInvitation = (db.invitationCodes || []).find(
+          (inv) => inv.code.trim().toUpperCase() === cleanCode
+        )
+
+        if (!foundInvitation) {
+          sendJson(res, 400, {
+            error: 'Invalid Administrator Invitation Code. Please verify your code or register as a pending request.',
+          })
+          return true
+        }
+
+        if (foundInvitation.used) {
+          sendJson(res, 400, {
+            error: 'This Administrator Invitation Code has already been used or redeemed.',
+          })
+          return true
+        }
+
+        if (new Date(foundInvitation.expiresAt) < new Date()) {
+          sendJson(res, 400, {
+            error: 'This Administrator Invitation Code has expired. Please request a new token from AICTE nodal authority.',
+          })
+          return true
+        }
+
+        // Mark invitation code used
+        foundInvitation.used = true
+        foundInvitation.usedByEmail = email.trim().toLowerCase()
+        foundInvitation.usedAt = new Date().toISOString()
+        isApproved = true
+        usedCode = cleanCode
+      }
+
+      // 10. Securely hash password and security answer (PBKDF2)
+      const passwordHash = hashPassword(password)
+      const securityAnswerHash = hashSecurityAnswer(securityAnswer)
+
+      const newUserId = `usr_platform_${Date.now()}`
+      const newAdminUser: UserRecord = {
+        id: newUserId,
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        username: cleanUsername,
+        role: 'platform_admin',
+        passwordHash,
+        securityQuestion: securityQuestion.trim(),
+        securityAnswerHash,
+        employeeId: (employeeId || `AICTE-EMP-${Date.now().toString().slice(-4)}`).trim().toUpperCase(),
+        designation: (designation || 'Platform Administrative Officer').trim(),
+        status: isApproved ? 'active' : 'pending_approval',
+        invitationCodeUsed: usedCode,
+        approvedAt: isApproved ? new Date().toISOString() : undefined,
+        approvedByAdminId: isApproved ? 'SYSTEM_INVITATION' : undefined,
+        failedLoginAttempts: 0,
+        lockoutUntil: 0,
+        createdAt: new Date().toISOString(),
+      }
+
+      db.users.push(newAdminUser)
+
+      // Audit Log Entry (Secrets are NEVER logged!)
+      db.auditLogs.unshift({
+        id: `aud_${Date.now()}`,
+        actorId: newAdminUser.id,
+        actorName: newAdminUser.fullName,
+        actorRole: 'platform_admin',
+        action: isApproved ? 'ADMIN_ENROLLMENT_TOKEN_ACTIVATED' : 'ADMIN_REGISTRATION_REQUEST_SUBMITTED',
+        targetType: 'PLATFORM_ADMIN_USER',
+        targetId: newAdminUser.id,
+        details: isApproved
+          ? `Platform Administrator enrolled with authorization token: ${newAdminUser.fullName} (${newAdminUser.email})`
+          : `Platform Administrator registration request submitted for approval: ${newAdminUser.fullName} (${newAdminUser.email})`,
+        timestamp: new Date().toISOString(),
+      })
+
+      saveDatabase(db)
+
+      if (isApproved) {
+        const token = createJwt({
+          userId: newAdminUser.id,
+          email: newAdminUser.email,
+          username: newAdminUser.username,
+          role: newAdminUser.role,
+        })
+
+        sendJson(res, 201, {
+          success: true,
+          activated: true,
+          message: 'Platform Administrator account created and authorized successfully. You may now sign in.',
+          token,
+          user: {
+            id: newAdminUser.id,
+            fullName: newAdminUser.fullName,
+            email: newAdminUser.email,
+            username: newAdminUser.username,
+            role: newAdminUser.role,
+            status: newAdminUser.status,
+            employeeId: newAdminUser.employeeId,
+            designation: newAdminUser.designation,
+          },
+        })
+        return true
+      }
+
+      sendJson(res, 201, {
+        success: true,
+        activated: false,
+        pendingApproval: true,
+        message:
+          'Platform Administrator registration request submitted successfully. Your request is pending verification and approval by the Central AICTE Authority before portal access is granted.',
+        user: {
+          id: newAdminUser.id,
+          fullName: newAdminUser.fullName,
+          email: newAdminUser.email,
+          username: newAdminUser.username,
+          role: newAdminUser.role,
+          status: newAdminUser.status,
+          employeeId: newAdminUser.employeeId,
+          designation: newAdminUser.designation,
+        },
       })
       return true
     }
@@ -663,6 +1289,16 @@ export async function handleAuthRequest(
         sendJson(res, 200, { success: true })
         return true
       }
+      if (endpoint === '/api/student/profile' && req.method === 'PUT') {
+        const body = await parseBody(req)
+        const updatedStudent = dbService.updateStudentProfile(auth.user.id, body)
+        if (!updatedStudent) {
+          sendJson(res, 404, { error: 'Student record not found.' })
+          return true
+        }
+        sendJson(res, 200, { success: true, student: updatedStudent })
+        return true
+      }
     }
 
     // ═════════════════════════════════════════════════════════════
@@ -700,9 +1336,28 @@ export async function handleAuthRequest(
         return true
       }
 
+      if (endpoint === '/api/college/departments' && req.method === 'PUT') {
+        const body = await parseBody(req)
+        const { departments } = body
+        if (!Array.isArray(departments)) {
+          sendJson(res, 400, { error: 'departments must be an array of strings.' })
+          return true
+        }
+        const updated = dbService.updateCollegeDepartments(college.id, departments)
+        sendJson(res, 200, { success: true, departments: updated })
+        return true
+      }
+
       if (endpoint === '/api/college/students/search' && req.method === 'GET') {
         const q = queryParams.get('q') || ''
-        const students = dbService.searchStudentsInCollege(college.id, q)
+        const dept = queryParams.get('department') || ''
+        const year = queryParams.get('year') || ''
+        const searchType = (queryParams.get('searchType') as 'all' | 'registrationNumber' | 'apaarId') || 'all'
+        const students = dbService.searchStudentsInCollege(college.id, q, {
+          department: dept,
+          academicYear: year,
+          searchType,
+        })
         sendJson(res, 200, { success: true, students })
         return true
       }
@@ -711,6 +1366,8 @@ export async function handleAuthRequest(
         const body = await parseBody(req)
         const {
           studentRegistrationNumber,
+          studentId,
+          apaarId,
           documentType,
           title,
           fileName,
@@ -719,9 +1376,9 @@ export async function handleAuthRequest(
           marksheetDetails,
         } = body
 
-        if (!studentRegistrationNumber || !documentType || !title || !fileName) {
+        if ((!studentRegistrationNumber && !studentId && !apaarId) || !documentType || !title || !fileName) {
           sendJson(res, 400, {
-            error: 'Student Registration Number, document type, document title, and file are required.',
+            error: 'Student identifier (Registration Number, Student ID, or APAAR ID), document type, document title, and file are required.',
           })
           return true
         }
@@ -730,6 +1387,8 @@ export async function handleAuthRequest(
           collegeId: college.id,
           adminUserId: auth.user.id,
           studentRegistrationNumber,
+          studentId,
+          apaarId,
           documentType,
           title,
           fileName,
@@ -739,7 +1398,7 @@ export async function handleAuthRequest(
         })
 
         if (!result.success) {
-          sendJson(res, 404, { error: result.error })
+          sendJson(res, 400, { error: result.error })
           return true
         }
 
@@ -771,6 +1430,13 @@ export async function handleAuthRequest(
         }
 
         sendJson(res, 200, { success: true, document: result.document })
+        return true
+      }
+
+      if (endpoint === '/api/college/verification-requests' && req.method === 'GET') {
+        const db = getDatabase()
+        const requests = db.verificationRequests.filter((v) => v.collegeId === college.id)
+        sendJson(res, 200, { success: true, requests })
         return true
       }
 
@@ -823,8 +1489,9 @@ export async function handleAuthRequest(
         return true
       }
 
-      if (endpoint.startsWith('/api/platform/colleges/') && endpoint.endsWith('/details') && req.method === 'GET') {
-        const colId = endpoint.split('/')[4]
+      const collegeDetailsMatch = endpoint.match(/^\/api\/platform\/colleges\/([^/]+)(\/details)?$/)
+      if (collegeDetailsMatch && req.method === 'GET') {
+        const colId = collegeDetailsMatch[1]
         const details = dbService.getCollegeDetailsForPlatform(colId)
         if (!details) {
           sendJson(res, 404, { error: 'College record not found.' })
@@ -847,6 +1514,71 @@ export async function handleAuthRequest(
         col.status = status
         saveDatabase(db)
         sendJson(res, 200, { success: true, college: col })
+        return true
+      }
+
+      // Platform Administrator Pending Approval Management
+      if (endpoint === '/api/platform/admins/pending' && req.method === 'GET') {
+        const pending = dbService.getPendingAdminRequests()
+        sendJson(res, 200, { success: true, pendingAdmins: pending })
+        return true
+      }
+
+      if (endpoint.startsWith('/api/platform/admins/') && endpoint.endsWith('/approve') && req.method === 'POST') {
+        const adminId = endpoint.split('/')[4]
+        const result = dbService.approveAdminRequest(adminId, auth.user.id)
+        if (!result.success) {
+          sendJson(res, 400, { error: result.error })
+          return true
+        }
+        const adminData = {
+          id: result.user?.id,
+          fullName: result.user?.fullName,
+          email: result.user?.email,
+          username: result.user?.username,
+          status: result.user?.status,
+        }
+        sendJson(res, 200, {
+          success: true,
+          message: `Administrator account for ${result.user?.fullName} approved successfully.`,
+          admin: adminData,
+          user: adminData,
+        })
+        return true
+      }
+
+      // Platform Administrator Invitation Management
+      if (endpoint === '/api/platform/invitations/create' && req.method === 'POST') {
+        const body = await parseBody(req)
+        const expiresInDays = Number(body.expiresInDays) || 7
+        const invitation = dbService.createAdminInvitation(auth.user.id, expiresInDays)
+
+        // Audit log
+        const db = getDatabase()
+        db.auditLogs.unshift({
+          id: `aud_${Date.now()}`,
+          actorId: auth.user.id,
+          actorName: auth.user.fullName,
+          actorRole: 'platform_admin',
+          action: 'ADMIN_INVITATION_CREATED',
+          targetType: 'ADMIN_INVITATION',
+          targetId: invitation.id,
+          details: `Generated Administrator Invitation Token: ${invitation.code} (Expires in ${expiresInDays} days)`,
+          timestamp: new Date().toISOString(),
+        })
+        saveDatabase(db)
+
+        sendJson(res, 201, {
+          success: true,
+          message: 'Platform Administrator invitation token created successfully.',
+          invitation,
+        })
+        return true
+      }
+
+      if (endpoint === '/api/platform/invitations' && req.method === 'GET') {
+        const db = getDatabase()
+        sendJson(res, 200, { success: true, invitations: db.invitationCodes || [] })
         return true
       }
     }

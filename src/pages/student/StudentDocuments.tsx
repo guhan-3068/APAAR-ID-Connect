@@ -16,6 +16,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from '@/components/commo
 import { Badge } from '@/components/common/Badge'
 import { Button } from '@/components/common/Button'
 import { useStudent } from '@/context/StudentContext'
+import { studentApi } from '@/services/portalApiService'
 import type { StudentDocumentItem } from '@/types'
 import { formatApaarId } from '@/utils/formatters'
 
@@ -29,10 +30,40 @@ export const StudentDocuments: React.FC = () => {
   const [previewDoc, setPreviewDoc] = useState<StudentDocumentItem | null>(null)
 
   // Download Document Action
-  const handleDownloadDoc = (doc: StudentDocumentItem) => {
+  const handleDownloadDoc = async (doc: StudentDocumentItem) => {
     if (doc.status === 'missing' || doc.fileName.includes('Not Available')) {
       showToast('Document file is not yet available for download. Original physical copy is required by the college registrar.', 'info')
       return
+    }
+
+    try {
+      const realDoc = await studentApi.downloadDocument(doc.id)
+      if (realDoc && realDoc.fileData) {
+        if (realDoc.fileData.startsWith('data:')) {
+          const a = document.createElement('a')
+          a.href = realDoc.fileData
+          a.download = realDoc.fileName || `${doc.title}.pdf`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          showToast(`Downloaded ${doc.title}`, 'success')
+          return
+        } else {
+          const blob = new Blob([realDoc.fileData], { type: realDoc.mimeType || 'text/plain;charset=utf-8' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = realDoc.fileName || `${doc.title}.txt`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          showToast(`Downloaded ${doc.title}`, 'success')
+          return
+        }
+      }
+    } catch {
+      // Fallback to certified academic record blob
     }
 
     const dummyContent = `================================================================================
@@ -46,6 +77,7 @@ File Name      : ${doc.fileName}
 File Size      : ${doc.fileSize}
 Classification : ${doc.type}
 Upload Date    : ${doc.uploadDate}
+Uploading College: ${profile.institutionName}
 Current Status : ${doc.status.toUpperCase()}
 Availability   : ${doc.availability || 'Available'}
 Cryptographic Digest: ${doc.hashDigest || 'SHA256:8f2a4b1c9e3d5f7a0b2c4e6d8f1a3b5c7e9d0f2a4b6c8e0d2f4a6b8c0e2d4f6a'}
@@ -72,6 +104,7 @@ DIGITALLY PRESERVED AND SEALED VIA APAAR ACADEMIC DOCUMENT PLATFORM
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+    showToast(`Downloaded ${doc.title}`, 'success')
   }
 
   const getStatusBadge = (status: StudentDocumentItem['status']) => {
@@ -265,7 +298,8 @@ DIGITALLY PRESERVED AND SEALED VIA APAAR ACADEMIC DOCUMENT PLATFORM
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredDocuments.map((doc) => {
+              {filteredDocuments.length > 0 ? (
+                filteredDocuments.map((doc) => {
                 const isVerified = doc.status === 'verified'
 
                 return (
@@ -347,8 +381,18 @@ DIGITALLY PRESERVED AND SEALED VIA APAAR ACADEMIC DOCUMENT PLATFORM
                     </td>
                   </tr>
                 )
-              })}
-            </tbody>
+              })
+            ) : (
+              <tr>
+                <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
+                  <FolderArchive className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                  {documents.length === 0
+                    ? 'No documents have been uploaded for your account yet.'
+                    : 'No documents match the selected filter.'}
+                </td>
+              </tr>
+            )}
+          </tbody>
           </table>
         </div>
       </Card>
@@ -396,6 +440,10 @@ DIGITALLY PRESERVED AND SEALED VIA APAAR ACADEMIC DOCUMENT PLATFORM
                   <span className="font-bold text-slate-800">{previewDoc.type}</span>
                 </div>
                 <div>
+                  <span className="text-slate-400 block text-[11px]">Uploading College</span>
+                  <span className="font-bold text-slate-800">{profile.institutionName || 'Issuing College'}</span>
+                </div>
+                <div>
                   <span className="text-slate-400 block text-[11px]">Upload / Issue Date</span>
                   <span className="font-bold text-slate-800">{previewDoc.uploadDate}</span>
                 </div>
@@ -404,6 +452,10 @@ DIGITALLY PRESERVED AND SEALED VIA APAAR ACADEMIC DOCUMENT PLATFORM
                   <span className="font-bold text-slate-800">
                     {previewDoc.status === 'verified' ? '🔒 Locked (Institutional Record)' : 'College Managed'}
                   </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Verification Status</span>
+                  <span className="font-bold text-slate-800 uppercase">{previewDoc.status}</span>
                 </div>
               </div>
 

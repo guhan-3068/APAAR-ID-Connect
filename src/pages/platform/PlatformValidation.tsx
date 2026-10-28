@@ -276,18 +276,25 @@ export const PlatformValidation: React.FC = () => {
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
                     <AlertCircle className="mx-auto text-slate-300 mb-2" size={28} />
-                    <p className="font-semibold">No student records match the selected filters.</p>
-                    <button
-                      onClick={() => {
-                        setSearchTerm('')
-                        setStatusFilter('all')
-                        setInstitutionFilter('all')
-                        setIssueFilter('all')
-                      }}
-                      className="mt-2 text-purple-600 font-bold hover:underline"
-                    >
-                      Clear all filters
-                    </button>
+                    <p className="font-semibold">
+                      {aicteStudents.length === 0 ? 'No student validation records exist.' : 'No student records match the selected filters.'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {aicteStudents.length === 0 ? 'Student enrolment submissions and cross-institution validation checks will appear here.' : 'Try adjusting your search query or filters.'}
+                    </p>
+                    {aicteStudents.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setSearchTerm('')
+                          setStatusFilter('all')
+                          setInstitutionFilter('all')
+                          setIssueFilter('all')
+                        }}
+                        className="mt-2 text-purple-600 font-bold hover:underline"
+                      >
+                        Clear all filters
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (

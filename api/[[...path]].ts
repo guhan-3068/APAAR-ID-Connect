@@ -2,6 +2,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { handleAuthRequest } from '../server/authBackend.ts'
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
+  // Normalize req.url to guarantee /api prefix in Vercel serverless environment
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = `/api${req.url.startsWith('/') ? req.url : '/' + req.url}`
+  }
+
   // Set CORS headers for preflight and standard requests
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')

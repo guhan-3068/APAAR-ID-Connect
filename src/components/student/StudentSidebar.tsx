@@ -14,7 +14,8 @@ import {
   Sparkles
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
-import { mockStudentProfile, mockStudentNotifications } from '@/services/studentMockData'
+import { useStudent } from '@/context/StudentContext'
+import { useAuth } from '@/context/AuthContext'
 
 interface StudentSidebarProps {
   isOpen: boolean
@@ -23,7 +24,8 @@ interface StudentSidebarProps {
 
 export const StudentSidebar: React.FC<StudentSidebarProps> = ({ isOpen, setIsOpen }) => {
   const navigate = useNavigate()
-  const unreadCount = mockStudentNotifications.filter((n) => !n.read).length
+  const { profile, unreadNotificationsCount } = useStudent()
+  const { logout } = useAuth()
 
   const navItems = [
     { label: 'Overview', path: '/student', end: true, icon: LayoutDashboard },
@@ -35,12 +37,13 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ isOpen, setIsOpe
       label: 'Notifications', 
       path: '/student/notifications', 
       icon: Bell,
-      badge: unreadCount > 0 ? String(unreadCount) : undefined,
+      badge: unreadNotificationsCount > 0 ? String(unreadNotificationsCount) : undefined,
     },
     { label: 'Settings', path: '/student/settings', icon: Settings },
   ]
 
   const handleLogout = () => {
+    logout()
     navigate('/login')
   }
 
@@ -94,14 +97,14 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ isOpen, setIsOpe
           <div className="mx-1 rounded-xl p-3 bg-gradient-to-br from-blue-50/70 via-indigo-50/40 to-purple-50/70 border border-blue-100">
             <div className="flex items-center gap-2.5">
               <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-blue-600 to-purple-600 text-white text-xs font-bold flex items-center justify-center shadow-xs shrink-0">
-                {mockStudentProfile.fullName.split(' ').map((n) => n[0]).join('')}
+                {(profile?.fullName || 'Student').split(' ').map((n: string) => n[0]).join('')}
               </div>
               <div className="overflow-hidden">
                 <p className="text-xs font-bold text-slate-900 truncate">
-                  {mockStudentProfile.fullName}
+                  {profile?.fullName || 'Student'}
                 </p>
                 <p className="text-[10px] font-mono text-slate-500 truncate">
-                  {mockStudentProfile.registrationNumber}
+                  {profile?.registrationNumber || 'No Reg No'}
                 </p>
               </div>
             </div>
@@ -110,7 +113,7 @@ export const StudentSidebar: React.FC<StudentSidebarProps> = ({ isOpen, setIsOpe
               <span className="text-slate-500">APAAR Status:</span>
               <span className="font-bold text-emerald-600 flex items-center gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Verified
+                {profile?.enrollmentVerificationStatus === 'verified' ? 'Verified' : 'Active'}
               </span>
             </div>
           </div>
